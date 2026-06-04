@@ -1,0 +1,44 @@
+// devcontainer.json — alternate launch path via @devcontainers/cli or VS Code
+// Remote Containers. Mirrors mounts.env (the authoritative source for target
+// paths; a CI lint asserts the two stay in sync).
+//
+// REQUIRED env on launch: SANDBOX_WORKSPACE (the host dir to bind as
+// /workspace/oss). devcontainer.json can't auto-derive it from the repo
+// location the way mounts.env can, so the alternate path needs it explicit:
+//     SANDBOX_WORKSPACE=$(dirname "$(pwd)") devcontainer up --workspace-folder .
+//
+// Optional env: USER (used as the volume namespace prefix); defaults to the
+// host shell's $USER.
+//
+// Do not add Features in v1 — see README "Not in v1".
+{
+  "name": "${localEnv:USER}-sandbox",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": "..",
+    "args": {
+      "HOST_UID": "${localEnv:HOST_UID:1000}",
+      "HOST_GID": "${localEnv:HOST_GID:1000}"
+    }
+  },
+  "remoteUser": "dev",
+  "workspaceFolder": "/workspace/oss",
+  "containerEnv": {
+    "HOME": "/workspace/home"
+  },
+  "mounts": [
+    "type=bind,source=${localEnv:SANDBOX_WORKSPACE},target=/workspace/oss",
+    "type=bind,source=${localEnv:SANDBOX_WORKSPACE}/.sandbox-home,target=/workspace/home",
+    "type=bind,source=${localEnv:SANDBOX_WORKSPACE}/learnings-inbox,target=/workspace/inbox",
+    "type=volume,source=${localEnv:USER}-toolchains,target=/workspace/home/.cache/toolchains",
+    "type=volume,source=${localEnv:USER}-gh,target=/workspace/home/.config/gh",
+    "type=tmpfs,target=/run/secrets"
+  ],
+  "runArgs": [
+    "--hostname", "${localEnv:USER}-sandbox",
+    "--security-opt", "no-new-privileges",
+    "--stop-timeout", "60",
+    "--network", "bridge"
+  ],
+  "overrideCommand": false
+}

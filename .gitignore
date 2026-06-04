@@ -1,0 +1,20 @@
+# Runtime working directories — never committed.
+# These live under ~/Documents/oss/ but the sandbox repo owns the convention.
+.sandbox-home/
+learnings-inbox/
+
+# Local secrets / scratch
+*.token
+*.tokens
+.env
+.env.*
+*.pem
+*.key
+id_rsa
+id_ed25519
+id_ecdsa
+.ssh/
+.tmp/
+
+# macOS
+.DS_Store
