@@ -1,0 +1,50 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  static:
+    name: static (shellcheck + sync + JSON parse)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y shellcheck
+      - name: Run static suite
+        run: ./tests/run.sh static
+
+  build-and-functional:
+    name: build + functional
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: static
+    steps:
+      - uses: actions/checkout@v4
+
+      # Identity-isolation principle: a CI runner must NEVER hold a real
+      # personal credential. The test harness uses literal fake-token
+      # strings to exercise the entrypoint's read-and-shred path. Unset
+      # any auth env that GitHub Actions injects by default so it can't
+      # leak into the container.
+      - name: Unset auth env for identity-isolation
+        run: |
+          echo "GITHUB_TOKEN=" >> "$GITHUB_ENV"
+          echo "GH_TOKEN=" >> "$GITHUB_ENV"
+
+      - name: Build image
+        run: ./tests/run.sh build
+
+      - name: Functional tests
+        run: ./tests/run.sh functional
+
+      - name: Documented CI skips
+        run: |
+          echo "Skipped in CI (require interactive auth or platform):"
+          echo "  - real gh auth login --with-token against api.github.com"
+          echo "  - OrbStack-specific behavior (CI is Linux, no OrbStack)"
+          echo "  - apt install package-discovery diff (slow, mirror-dependent)"
