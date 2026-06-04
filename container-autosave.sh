@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Snapshot-diff dumper. Mirrors _worklog/bin/autosave.sh philosophy:
-# fail-safe capture, review later, never block exit, never auto-commit.
+# Snapshot-diff dumper. Philosophy: fail-safe capture, review later,
+# never block exit, never auto-commit. Inspired by PreCompact / SessionEnd
+# autosave hooks used in long-running agent sessions.
 #
 # Mode arg:
 #   periodic  — quiet, runs every 5min from entrypoint background loop
