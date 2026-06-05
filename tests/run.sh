@@ -259,6 +259,26 @@ test_functional() {
     fail "Codex credentials not installed at ~/.codex/auth.json"
   fi
 
+  # 4j. Entrypoint clears stale .gitconfig.lock without aborting.
+  # Regression for dogfood-found bug: prior killed entrypoint left a lock,
+  # which made every subsequent up exit 255 before exec sleep infinity ran.
+  cleanup_test_container
+  # Create a stale lock in the bind-mount target (simulating a prior crash).
+  mkdir -p "${SANDBOX_HOME_DIR:?}"
+  touch "$SANDBOX_HOME_DIR/.gitconfig.lock"
+  docker run -d --name "$TEST_CONTAINER" \
+    --mount "type=tmpfs,target=/run/secrets" \
+    --mount "type=bind,source=$SANDBOX_HOME_DIR,target=/workspace/home" \
+    --user dev \
+    "$TEST_IMAGE" sleep 60 >/dev/null
+  if docker exec "$TEST_CONTAINER" /usr/local/bin/sandbox-entrypoint true >/dev/null 2>&1; then
+    ok "entrypoint completes despite stale .gitconfig.lock (cleared idempotently)"
+  else
+    fail "entrypoint aborted on stale .gitconfig.lock"
+  fi
+  rm -f "$SANDBOX_HOME_DIR/.gitconfig.lock"
+  cleanup_test_container
+
   # 4i. Named-volume mount points are writable by dev (the actual container user).
   # Regression test for a real bug found during dogfood: image's mount targets
   # were root-owned, so when docker initialized empty named volumes from the
