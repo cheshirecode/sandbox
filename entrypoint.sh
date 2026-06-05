@@ -95,6 +95,31 @@ if [[ -s "$OPENAI_TOKEN_FILE" ]]; then
   echo "sandbox-entrypoint: installed Codex credentials at ~/.codex/auth.json"
 fi
 
+# --- 2d. gh OAuth scope advisory (warn-only, never refuse) ----------------
+# Council survivor item 14: surfaced by the worklog-install dogfood where
+# `gh auth login --with-token` rejected on missing `read:org`. Mirrors the
+# existing token-expiry warn pattern: parses X-OAuth-Scopes from `gh api -i
+# user`, compares against a recommended scope set, warns on misses. NEVER
+# refuses — many flows work with narrower scopes; the user just needs to
+# know which gh operations may fail.
+if gh auth status >/dev/null 2>&1; then
+  RECOMMENDED_SCOPES="repo read:org workflow"
+  GRANTED=$(gh api -i user 2>/dev/null \
+    | awk -F': ' 'tolower($1)=="x-oauth-scopes"{print $2}' \
+    | tr -d '\r' | tr ',' ' ' || true)
+  if [[ -n "$GRANTED" ]]; then
+    MISSING=""
+    for scope in $RECOMMENDED_SCOPES; do
+      echo " $GRANTED " | grep -qE "[ ,]$scope[ ,]" || MISSING="$MISSING $scope"
+    done
+    if [[ -n "${MISSING# }" ]]; then
+      echo "sandbox-entrypoint: WARN — gh token missing recommended scope(s):${MISSING}" >&2
+      echo "  Operations that may fail: gh pr create (repo), gh api orgs/* (read:org), workflow file edits (workflow)." >&2
+      echo "  Fix on host: gh auth refresh -h github.com -s repo,read:org,workflow" >&2
+    fi
+  fi
+fi
+
 # --- 3. Git identity derived from the piped token's account ---------------
 # Precedence: GIT_AUTHOR_NAME/EMAIL env override → gh api user (the token's
 # actual GitHub account, so a fork "just works") → fallback strings.
@@ -112,6 +137,13 @@ elif [[ -n "$LOGIN" && -n "$LOGIN_ID" ]]; then
 else
   EMAIL="${NAME}@users.noreply.github.com"
 fi
+# Clear stale .gitconfig.lock from prior killed entrypoint runs (the bind-
+# mounted /workspace/home persists across container deaths; a previous run
+# killed mid-`git config --global` leaves a lock that aborts every subsequent
+# entrypoint with `set -e`). Discovered via dogfood when --no-attach's
+# two-entrypoint flow raced on the same lock.
+rm -f "$HOME/.gitconfig.lock"
+
 git config --global user.name  "$NAME"
 git config --global user.email "$EMAIL"
 git config --global init.defaultBranch main
