@@ -259,6 +259,24 @@ test_functional() {
     fail "Codex credentials not installed at ~/.codex/auth.json"
   fi
 
+  # 4h. Graceful no-credentials startup (Linux/CI parity).
+  # Asserts the entrypoint runs cleanly when ZERO LLM tokens are piped —
+  # the "host has no LLM CLI installed" path that CI always exercises.
+  cleanup_test_container
+  docker run -d --name "$TEST_CONTAINER" \
+    --mount "type=tmpfs,target=/run/secrets" \
+    "$TEST_IMAGE" sleep 60 >/dev/null
+  # Run entrypoint WITHOUT planting any tokens
+  if docker exec "$TEST_CONTAINER" /usr/local/bin/sandbox-entrypoint true >/dev/null 2>&1; then
+    ok "entrypoint completes cleanly with zero LLM tokens piped"
+  else
+    fail "entrypoint failed when no LLM tokens were piped"
+  fi
+  cleanup_test_container
+
+  # Restart the standard test container for the remaining assertions
+  start_test_container
+
   # 4g. Work-context exclusion (structural): no host ~/.codex bind mount.
   bind_count_codex=$(docker inspect "$TEST_CONTAINER" \
     --format '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}} {{end}}{{end}}' \

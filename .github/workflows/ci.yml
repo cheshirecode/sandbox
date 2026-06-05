@@ -48,3 +48,49 @@ jobs:
           echo "  - real gh auth login --with-token against api.github.com"
           echo "  - OrbStack-specific behavior (CI is Linux, no OrbStack)"
           echo "  - apt install package-discovery diff (slow, mirror-dependent)"
+
+  fresh-machine-emulation:
+    name: fresh-machine setup-from-scratch (Linux parity)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: static
+    # Proves the reproducibility promise: a vanilla Linux runner with no
+    # pre-existing state can clone this repo + run bin/setup-from-scratch.sh
+    # + come up to a working sandbox. Exercises the no-host-credentials path
+    # that real macOS users don't hit (because their host has Claude Code +
+    # Codex), but a fork on Linux/WSL2 absolutely does.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unset auth env for identity-isolation
+        run: |
+          echo "GITHUB_TOKEN=" >> "$GITHUB_ENV"
+          echo "GH_TOKEN=" >> "$GITHUB_ENV"
+
+      - name: Confirm clean starting state (no host LLM creds, no prior sandbox)
+        run: |
+          test ! -f ~/.claude/.credentials.json && echo "  OK no Anthropic creds"
+          test ! -f ~/.codex/auth.json         && echo "  OK no Codex creds"
+          docker volume ls --format '{{.Name}}' | grep -E '(toolchains|gh|claude|codex)$' || echo "  OK no leftover named volumes"
+
+      - name: Run bin/setup-from-scratch.sh (--skip-smoke because gh auth is missing in CI)
+        # The full smoke requires `gh auth token` which CI doesn't have.
+        # We exercise stages 1-4 (prereqs, identity probe, LLM probe, build)
+        # which are the reproducibility-critical path. Stage 5 (interactive
+        # `up`) is the part real users run; CI verifies the build alone.
+        run: ./bin/setup-from-scratch.sh --skip-smoke
+
+      - name: Prove nuke leaves a true fresh state
+        run: |
+          # Need a require_token bypass for the nuke smoke; nuke doesn't
+          # need it, but sourcing mounts.env does require SANDBOX_LOGIN
+          # detection which works without gh on CI (falls back to $USER).
+          ./bin/sandbox.sh nuke
+          docker image inspect "$(source mounts.env && echo $IMAGE_NAME:$IMAGE_TAG)" 2>&1 \
+            | grep -q "No such image" && echo "  OK image removed by nuke"
+          docker volume ls --format '{{.Name}}' | grep -E '(toolchains|gh|claude|codex)$' \
+            && echo "  FAIL volumes survived nuke" && exit 1 \
+            || echo "  OK no named volumes after nuke"
+
+      - name: Re-run setup-from-scratch to confirm idempotency
+        run: ./bin/setup-from-scratch.sh --skip-smoke

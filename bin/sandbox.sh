@@ -120,7 +120,7 @@ cmd_doctor() {
   echo "  INFO github login:   $SANDBOX_LOGIN"
   echo "  INFO image:          $IMAGE_NAME:$IMAGE_TAG"
   echo "  INFO container name: $CONTAINER_NAME"
-  echo "  INFO volumes:        $VOL_TOOLCHAINS, $VOL_GH"
+  echo "  INFO volumes:        $VOL_TOOLCHAINS, $VOL_GH, $VOL_CLAUDE, $VOL_CODEX"
   ensure_runtime_dirs
   echo "  OK   workspace      $SANDBOX_WORKSPACE"
   echo "  OK   sandbox \$HOME  $SANDBOX_HOME_DIR"
@@ -231,21 +231,121 @@ cmd_down() {
     docker stop --time=60 "$CONTAINER_NAME" >/dev/null
   fi
   docker rm "$CONTAINER_NAME" >/dev/null 2>&1 || true
-  echo "sandbox: stopped. Volumes (toolchains, gh) preserved."
+  echo "sandbox: stopped. Named volumes ($VOL_TOOLCHAINS, $VOL_GH, $VOL_CLAUDE, $VOL_CODEX) preserved."
+}
+
+# --- Subcommand: verify-llm-auth ------------------------------------------
+# Real-token, host-side functional check. Runs INSIDE the live container and
+# asks each LLM CLI whether its piped credential actually authenticates.
+# Closes assumption #2 from DESIGN.md ("the container can use the OAuth token
+# by writing it to ~/.<provider>/<credentials>").
+#
+# Exit non-zero only if ALL detected providers fail. Per-provider non-error
+# but missing is treated as "not exercised, not failed" since the provider
+# may simply not be installed inside the container yet.
+cmd_verify_llm_auth() {
+  if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
+    echo "sandbox: container not running. Run \`bin/sandbox.sh up\` first." >&2
+    return 2
+  fi
+  local any_verified=0 any_failed=0
+
+  echo "sandbox verify-llm-auth: checking in-container auth for installed providers"
+
+  # Claude Code
+  if docker exec "$CONTAINER_NAME" command -v claude >/dev/null 2>&1; then
+    if docker exec "$CONTAINER_NAME" claude --version >/dev/null 2>&1 \
+        && docker exec "$CONTAINER_NAME" bash -lc 'claude auth status 2>&1 | grep -qiE "(authenticated|logged in|active)"'; then
+      echo "  OK   anthropic — claude auth verified inside container"
+      any_verified=1
+    else
+      echo "  FAIL anthropic — claude installed but auth status did not confirm"
+      any_failed=1
+    fi
+  else
+    echo "  SKIP anthropic — claude CLI not installed in container"
+  fi
+
+  # Codex
+  if docker exec "$CONTAINER_NAME" command -v codex >/dev/null 2>&1; then
+    if docker exec "$CONTAINER_NAME" bash -lc 'codex login status 2>&1 | grep -qiE "(logged in|authenticated|active)"'; then
+      echo "  OK   openai-codex — codex login verified inside container"
+      any_verified=1
+    else
+      echo "  FAIL openai-codex — codex installed but auth status did not confirm"
+      any_failed=1
+    fi
+  else
+    echo "  SKIP openai-codex — codex CLI not installed in container"
+  fi
+
+  if [[ $any_verified -eq 0 && $any_failed -eq 0 ]]; then
+    echo "sandbox: no LLM CLIs installed in container — nothing to verify"
+    return 0
+  fi
+  if [[ $any_failed -ne 0 ]]; then
+    echo "sandbox: ONE OR MORE providers FAILED verification (above)" >&2
+    return 1
+  fi
+  echo "sandbox: all installed LLM CLIs verified"
+}
+
+# --- Subcommand: nuke -----------------------------------------------------
+# Tear EVERYTHING down. For reproducibility testing — clears all persistent
+# state so the next `bin/sandbox.sh up` is a true fresh-machine simulation.
+# By default keeps the host runtime dirs (.sandbox-home, learnings-inbox);
+# pass --all to delete those too.
+cmd_nuke() {
+  local nuke_runtime=0
+  for arg in "$@"; do
+    case "$arg" in
+      --all) nuke_runtime=1 ;;
+      *) echo "sandbox nuke: unknown flag $arg" >&2; return 2 ;;
+    esac
+  done
+
+  echo "sandbox nuke: removing container, image, named volumes"
+  docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+  docker image rm "$IMAGE_NAME:$IMAGE_TAG" >/dev/null 2>&1 || true
+  for v in "$VOL_TOOLCHAINS" "$VOL_GH" "$VOL_CLAUDE" "$VOL_CODEX"; do
+    docker volume rm "$v" >/dev/null 2>&1 && echo "  removed volume $v" || true
+  done
+
+  if [[ $nuke_runtime -eq 1 ]]; then
+    echo "sandbox nuke: --all → also removing host runtime dirs"
+    rm -rf "$SANDBOX_HOME_DIR" "$SANDBOX_INBOX_DIR"
+  fi
+
+  echo "sandbox nuke: state cleared. Next \`bin/sandbox.sh up\` is a fresh start."
 }
 
 # --- Dispatch --------------------------------------------------------------
 usage() {
-  sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
+  cat <<EOF
+sandbox — host-side wrapper around an ephemeral identity-isolated dev container.
+
+  bin/sandbox.sh up               build (if needed) + run + drop into shell
+  bin/sandbox.sh exec <cmd>       run a command in the running container
+  bin/sandbox.sh down             stop the container (autosave fires)
+  bin/sandbox.sh rebuild          force rebuild the image
+  bin/sandbox.sh doctor           check host preconditions + show detected layout
+  bin/sandbox.sh verify-llm-auth  in-container check: do the piped LLM creds
+                                  actually authenticate?
+  bin/sandbox.sh nuke [--all]     remove container + image + named volumes
+                                  (use --all to also remove .sandbox-home and
+                                  learnings-inbox runtime dirs)
+EOF
 }
 
 cmd="${1:-}"; shift || true
 case "$cmd" in
-  up)       cmd_up "$@" ;;
-  exec)     cmd_exec "$@" ;;
-  down)     cmd_down ;;
-  rebuild)  cmd_rebuild ;;
-  doctor)   cmd_doctor ;;
+  up)              cmd_up "$@" ;;
+  exec)            cmd_exec "$@" ;;
+  down)            cmd_down ;;
+  rebuild)         cmd_rebuild ;;
+  doctor)          cmd_doctor ;;
+  verify-llm-auth) cmd_verify_llm_auth ;;
+  nuke)            cmd_nuke "$@" ;;
   ""|-h|--help|help) usage ;;
   *) echo "sandbox: unknown subcommand '$cmd'" >&2; usage; exit 2 ;;
 esac
