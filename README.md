@@ -138,15 +138,52 @@ auto-namespace to your login on first `up`.
 ## Subcommands
 
 ```
-bin/sandbox.sh up       build (if needed) + run + drop into shell
-bin/sandbox.sh exec X   run X in the running container
-bin/sandbox.sh down     stop the container (autosave fires)
-bin/sandbox.sh rebuild  force rebuild the image
-bin/sandbox.sh doctor   check host preconditions + show detected layout
+bin/sandbox.sh up               build (if needed) + run + drop into shell
+bin/sandbox.sh exec <cmd>       run <cmd> in the running container
+bin/sandbox.sh down             stop the container (autosave fires)
+bin/sandbox.sh rebuild          force rebuild the image
+bin/sandbox.sh doctor           check host preconditions + show layout
+bin/sandbox.sh verify-llm-auth  in-container check: piped LLM creds work?
+bin/sandbox.sh nuke [--all]     remove container + image + named volumes
+                                (--all also removes runtime dirs)
 ```
 
 Inbox curation: just `ls -lt $SANDBOX_INBOX_DIR/`. Files are files.
-Cleanup: `docker image prune` / `docker volume rm <login>-toolchains <login>-gh`.
+
+## Reproducibility (clear + repeat from scratch)
+
+The whole setup is scriptable and idempotent. To verify on your own machine,
+or to onboard a fresh box (yours, a fork-owner's, or a CI runner):
+
+```bash
+# Fresh setup or first install
+bin/setup-from-scratch.sh
+
+# To force-rebuild image:
+bin/setup-from-scratch.sh --rebuild
+
+# To also verify your real LLM creds authenticate inside the container:
+bin/setup-from-scratch.sh --verify-creds
+
+# Nuke everything and prove the setup script reproduces it:
+bin/sandbox.sh nuke --all
+bin/setup-from-scratch.sh
+
+# CI runs this same path on every push (job: fresh-machine-emulation),
+# proving the "works on a vanilla Linux machine" promise.
+```
+
+The setup script's stages are visible at the top of `bin/setup-from-scratch.sh`
+— each prints a `=== N/6 ===` header so you can watch the pipeline.
+
+## On Cursor support
+
+Cursor is **not** in the sandbox's BYO-keys-free auto-pipe today.
+`cursor-agent` typically logs in against an employer-tied account (the
+sandbox's identity-isolation explicitly refuses work credentials). If
+your `cursor-agent status` shows a personal-OSS account, this can be
+revisited. Otherwise: continue to use Cursor on the host, not inside
+the sandbox.
 
 ## Not in v1
 
