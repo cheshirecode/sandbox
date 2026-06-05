@@ -32,6 +32,7 @@
     "type=bind,source=${localEnv:SANDBOX_WORKSPACE}/learnings-inbox,target=/workspace/inbox",
     "type=volume,source=${localEnv:USER}-toolchains,target=/workspace/home/.cache/toolchains",
     "type=volume,source=${localEnv:USER}-gh,target=/workspace/home/.config/gh",
+    "type=volume,source=${localEnv:USER}-claude,target=/workspace/home/.claude",
     "type=tmpfs,target=/run/secrets"
   ],
   "runArgs": [

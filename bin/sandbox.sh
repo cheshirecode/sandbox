@@ -55,6 +55,28 @@ require_token() {
   printf '%s' "$token"
 }
 
+# Probe host for Anthropic OAuth credentials. Returns JSON blob on stdout
+# (the same shape Claude Code expects in ~/.claude/.credentials.json) and
+# exit 0 if found; exit 1 silently if not (provider skip is graceful).
+# Probe order: on-disk credentials file → macOS keychain. Linux/WSL2 has
+# no equivalent path today (v1.x scope: macOS-only Anthropic auto-pipe).
+probe_anthropic_credentials() {
+  local cred_file="$HOME/.claude/.credentials.json"
+  if [[ -s "$cred_file" ]]; then
+    cat "$cred_file"
+    return 0
+  fi
+  if [[ "$(uname -s)" == "Darwin" ]] && command -v security >/dev/null; then
+    local kc
+    kc=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null || true)
+    if [[ -n "$kc" ]]; then
+      printf '%s' "$kc"
+      return 0
+    fi
+  fi
+  return 1
+}
+
 build_env_args() {
   local args=()
   for var in "${SANDBOX_ENV_ALLOWLIST[@]}"; do
@@ -149,6 +171,19 @@ cmd_up() {
 
   shred -u "$token_tmp" 2>/dev/null || rm -f "$token_tmp"
   trap - EXIT
+
+  # Optional: auto-pipe Anthropic OAuth credentials if the host has them.
+  # Graceful skip if absent — sandbox still works without Claude Code auth.
+  # Stdin pipe (no host temp file) avoids the docker-cp-to-tmpfs race
+  # exposed earlier in tests/run.sh.
+  if anthropic_json="$(probe_anthropic_credentials)"; then
+    printf '%s' "$anthropic_json" | docker exec -i "$CONTAINER_NAME" sh -c \
+      'cat > /run/secrets/anthropic_token && chmod 0400 /run/secrets/anthropic_token'
+    unset anthropic_json
+    echo "sandbox: piped Anthropic OAuth credentials (Claude Code will inherit your session)"
+  else
+    echo "sandbox: no Anthropic credentials on host — Claude Code will need manual login if used"
+  fi
 
   # Replace the sleep with the real entrypoint, attached.
   docker exec -it "$CONTAINER_NAME" /usr/local/bin/sandbox-entrypoint bash -l

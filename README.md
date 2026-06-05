@@ -20,6 +20,24 @@ the commit history (search for "council Stage 6" in `git log`).
   artifacts (dotfiles install scripts, manifest entries, skills) via the
   snapshot-diff autosave hook.
 
+## Zero-config LLM auth
+
+If you already have **Claude Code** logged in on your host (macOS), the
+sandbox auto-pipes your Anthropic OAuth credentials into the container
+via a tmpfs path at `up` time. Inside the sandbox, `claude` "just works"
+without any login step. Credentials persist across `docker rm` in a
+per-login named volume; the tmpfs source is shredded after the
+entrypoint reads it.
+
+**No keys, env vars, or login flows required** as long as your host has
+working `claude auth status`. Conversations started inside the sandbox
+live in the `<login>-claude` named volume, isolated from your host's
+`~/.claude/projects/` (which holds work conversations and is **never**
+crossed into the sandbox).
+
+macOS-only for v1.x (probe order: `~/.claude/.credentials.json` →
+macOS keychain). Linux/WSL2 + Codex/Gemini auto-pipe planned for v1.1.
+
 ## First-time setup (fresh machine walkthrough)
 
 ```bash
