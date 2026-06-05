@@ -94,26 +94,15 @@ fi
 if [[ $SKIP_SMOKE -eq 1 ]]; then
   step "5/6  Smoke test SKIPPED (--skip-smoke)"
 else
-  step "5/6  Smoke test (up → exec true → down)"
+  step "5/6  Smoke test (up --no-attach → exec true → down)"
   if docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
-    ok "container already running — execing"
+    ok "container already running"
   else
-    # `up` is interactive; we want non-interactive smoke. Bring the container
-    # up via a non-attached path so the smoke is scriptable.
-    ok "starting container (non-attached smoke path)"
-    bin/sandbox.sh up </dev/null >/dev/null 2>&1 &
-    UP_PID=$!
-    # Wait up to 60s for the container to appear running
-    for _ in $(seq 1 60); do
-      docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME" && break
-      sleep 1
-    done
-    sleep 2
-    kill "$UP_PID" 2>/dev/null || true
-    wait "$UP_PID" 2>/dev/null || true
+    bin/sandbox.sh up --no-attach >/dev/null
+    ok "container started (non-attached)"
   fi
   if docker exec "$CONTAINER_NAME" true; then
-    ok "container running + exec works"
+    ok "container exec works"
   else
     fail "container not exec-able after up"
   fi
@@ -124,15 +113,7 @@ fi
 # --- 6. Optional: verify in-container auth --------------------------------
 if [[ $DO_VERIFY_CREDS -eq 1 ]]; then
   step "6/6  verify-llm-auth (real-token in-container check)"
-  bin/sandbox.sh up </dev/null >/dev/null 2>&1 &
-  UP_PID=$!
-  for _ in $(seq 1 60); do
-    docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME" && break
-    sleep 1
-  done
-  sleep 3
-  kill "$UP_PID" 2>/dev/null || true
-  wait "$UP_PID" 2>/dev/null || true
+  bin/sandbox.sh up --no-attach >/dev/null
   bin/sandbox.sh verify-llm-auth || warn "one or more providers failed verification (see above)"
   bin/sandbox.sh down >/dev/null
 else

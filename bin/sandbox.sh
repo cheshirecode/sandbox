@@ -97,16 +97,6 @@ probe_openai_credentials() {
   return 1
 }
 
-build_env_args() {
-  local args=()
-  for var in "${SANDBOX_ENV_ALLOWLIST[@]}"; do
-    if [[ -n "${!var:-}" ]]; then
-      args+=(--env "$var=${!var}")
-    fi
-  done
-  printf '%s\n' "${args[@]}"
-}
-
 # --- Subcommand: doctor ----------------------------------------------------
 cmd_doctor() {
   echo "sandbox: host preflight"
@@ -140,6 +130,14 @@ cmd_rebuild() {
 
 # --- Subcommand: up --------------------------------------------------------
 cmd_up() {
+  # --no-attach: bring container up + pipe credentials, but don't open the
+  # interactive shell. Returns 0 when container is running and ready.
+  # Used by setup-from-scratch.sh and tests that need a scriptable bring-up.
+  local no_attach=0
+  for arg in "$@"; do
+    [[ "$arg" == "--no-attach" ]] && no_attach=1
+  done
+
   ensure_runtime_dirs
 
   # Image exists?
@@ -160,22 +158,20 @@ cmd_up() {
     docker rm "$CONTAINER_NAME" >/dev/null
   fi
 
-  # Pull a fresh token from the host keychain (via .envrc-loaded gh).
-  # Token lives in a private tmp file (mode 0600) only long enough for
-  # docker cp to land it on the container's tmpfs; immediately shredded.
-  local token_tmp host_token
+  # Pull a fresh gh token from the host keychain (via .envrc-loaded gh).
+  local host_token
   host_token="$(require_token)"
-  token_tmp="$(mktemp -t sandbox-token.XXXXXX)"
-  chmod 600 "$token_tmp"
-  trap 'shred -u "$token_tmp" 2>/dev/null || rm -f "$token_tmp"' EXIT
 
-  printf '%s' "$host_token" > "$token_tmp"
-  unset host_token
+  # Build env-var allowlist args inline (bash-3.2-safe; mapfile is bash 4+).
+  local env_args=()
+  for var in "${SANDBOX_ENV_ALLOWLIST[@]}"; do
+    if [[ -n "${!var:-}" ]]; then
+      env_args+=(--env "$var=${!var}")
+    fi
+  done
 
-  # Build env-var allowlist args.
-  mapfile -t env_args < <(build_env_args)
-
-  # Run detached so we can docker cp the token, THEN attach.
+  # Run detached, then pipe tokens via stdin (no host temp file, no
+  # docker-cp-runs-as-root-then-dev-chmod-fails race).
   # shellcheck disable=SC2068 # intentional array expansion
   docker run -d \
     --name "$CONTAINER_NAME" \
@@ -185,12 +181,10 @@ cmd_up() {
     "$IMAGE_NAME:$IMAGE_TAG" \
     sleep infinity >/dev/null
 
-  # Land the token on the container's tmpfs at /run/secrets/gh_token.
-  docker cp "$token_tmp" "$CONTAINER_NAME:/run/secrets/gh_token"
-  docker exec "$CONTAINER_NAME" chmod 0400 /run/secrets/gh_token
-
-  shred -u "$token_tmp" 2>/dev/null || rm -f "$token_tmp"
-  trap - EXIT
+  # GH token via stdin (same pattern as Anthropic + Codex below).
+  printf '%s' "$host_token" | docker exec -i "$CONTAINER_NAME" sh -c \
+    'cat > /run/secrets/gh_token && chmod 0400 /run/secrets/gh_token'
+  unset host_token
 
   # Optional: auto-pipe Anthropic OAuth credentials if the host has them.
   # Graceful skip if absent — sandbox still works without Claude Code auth.
@@ -213,6 +207,17 @@ cmd_up() {
     echo "sandbox: piped OpenAI Codex credentials (codex CLI will inherit your session)"
   else
     echo "sandbox: no Codex credentials on host — codex CLI will need manual login if used"
+  fi
+
+  if [[ $no_attach -eq 1 ]]; then
+    # Run entrypoint detached so the credentials are installed + git config
+    # set + autosave started, then return — leaving the container alive
+    # (sleep infinity) for `bin/sandbox.sh exec` to attach to later.
+    docker exec -d "$CONTAINER_NAME" bash -lc '/usr/local/bin/sandbox-entrypoint sleep infinity > /tmp/entrypoint.out 2>&1'
+    # Wait briefly for entrypoint to run its setup phase (snapshots, git config).
+    sleep 3
+    echo "sandbox: container running, ready for \`bin/sandbox.sh exec\` (no shell attached)"
+    return
   fi
 
   # Replace the sleep with the real entrypoint, attached.
