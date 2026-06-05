@@ -176,6 +176,62 @@ bin/setup-from-scratch.sh
 The setup script's stages are visible at the top of `bin/setup-from-scratch.sh`
 — each prints a `=== N/6 ===` header so you can watch the pipeline.
 
+## Multiple instances from one repo (worktree + direnv pattern)
+
+You can manage several concurrent or switchable sandboxes from this
+single repo by leaning on `git worktree` + `direnv`. **No code changes**
+— the existing `SANDBOX_LOGIN` env override already namespaces the
+container, image, and named volumes.
+
+```bash
+# Add a worktree per instance. Each worktree is its own working dir.
+git worktree add ../sandbox-foo
+git worktree add ../sandbox-bar
+
+# Per worktree, set a distinct SANDBOX_LOGIN via direnv:
+cd ../sandbox-foo && echo 'export SANDBOX_LOGIN=cheshirecode-foo' > .envrc && direnv allow
+cd ../sandbox-bar && echo 'export SANDBOX_LOGIN=cheshirecode-bar' > .envrc && direnv allow
+
+# Now each worktree spins up an isolated sandbox:
+cd ../sandbox-foo && bin/sandbox.sh up   # container: cheshirecode-foo-sandbox
+cd ../sandbox-bar && bin/sandbox.sh up   # container: cheshirecode-bar-sandbox
+```
+
+Each instance gets its own container, image tag, and named volumes
+(`<login>-toolchains`, `<login>-gh`, `<login>-claude`, `<login>-codex`).
+Workspace bind-mount is the worktree's parent dir, so projects don't
+collide.
+
+To see what's running across all instances: `docker ps -a`. To list
+volumes: `docker volume ls`. `bin/sandbox.sh nuke` operates on the
+**current** `$SANDBOX_LOGIN` only, so one worktree's nuke doesn't
+touch the others.
+
+## Installing LLM CLIs inside the sandbox
+
+The auto-pipe lands Anthropic + Codex credentials at the canonical
+paths inside the container, but the **CLIs themselves are not in the
+image** (image stays small; install-as-needed per the user-choice
+principle). After your first `bin/sandbox.sh up`, install them once:
+
+```bash
+# Inside the sandbox shell:
+sudo apt-get install -y nodejs npm
+npm install -g @anthropic-ai/claude-code @openai/codex
+claude auth status      # should show your host's logged-in account
+codex login status      # same
+```
+
+The `<login>-toolchains` named volume persists the npm cache, so
+re-installs after `nuke` (without `--all`) are fast.
+
+To verify the auto-piped credentials actually authenticate the CLIs:
+
+```bash
+# From host:
+bin/sandbox.sh verify-llm-auth
+```
+
 ## On Cursor support
 
 Cursor is **not** in the sandbox's BYO-keys-free auto-pipe today.
