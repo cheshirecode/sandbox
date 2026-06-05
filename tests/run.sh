@@ -135,6 +135,13 @@ start_test_container() {
     'cat > /run/secrets/gh_token && chmod 0400 /run/secrets/gh_token' \
     <<<'fake-token-for-test-only-not-a-real-credential'
 
+  # Plant a structurally-valid-but-non-functional Anthropic credentials blob.
+  # Same pattern as gh_token — exercises the entrypoint's read-and-shred logic
+  # plus the named-volume write to ~/.claude/.credentials.json.
+  docker exec -i "$TEST_CONTAINER" sh -c \
+    'cat > /run/secrets/anthropic_token && chmod 0400 /run/secrets/anthropic_token' \
+    <<<'{"access_token":"fake-anthropic-oauth-not-a-real-credential","refresh_token":"fake-refresh"}'
+
   # Run the entrypoint in the background; capture output to /tmp inside.
   docker exec -d "$TEST_CONTAINER" bash -c '/usr/local/bin/sandbox-entrypoint sleep 60 > /tmp/entrypoint.out 2>&1'
   sleep 3  # give entrypoint time to run snapshots, git config, etc.
@@ -186,9 +193,44 @@ test_functional() {
 
   # 4. Token file shredded after entrypoint consumed it.
   if ! docker exec "$TEST_CONTAINER" test -f /run/secrets/gh_token; then
-    ok "tmpfs token wiped after entrypoint read"
+    ok "tmpfs gh token wiped after entrypoint read"
   else
-    fail "tmpfs token still present (not shredded)"
+    fail "tmpfs gh token still present (not shredded)"
+  fi
+
+  # 4b. Anthropic tmpfs token also shredded.
+  if ! docker exec "$TEST_CONTAINER" test -f /run/secrets/anthropic_token; then
+    ok "tmpfs anthropic token wiped after entrypoint read"
+  else
+    fail "tmpfs anthropic token still present (not shredded)"
+  fi
+
+  # 4c. Anthropic credentials installed at ~/.claude/.credentials.json
+  # (named-volume-backed; persists across docker rm).
+  if docker exec "$TEST_CONTAINER" test -f /workspace/home/.claude/.credentials.json; then
+    # Mode must be 0600 — exposed creds inside the container should not be
+    # world-readable. Check octal.
+    mode=$(docker exec "$TEST_CONTAINER" stat -c '%a' /workspace/home/.claude/.credentials.json 2>/dev/null)
+    if [[ "$mode" == "600" ]]; then
+      ok "Anthropic credentials installed at ~/.claude/.credentials.json mode 0600"
+    else
+      fail "Anthropic credentials mode is '$mode' (expected 600)"
+    fi
+  else
+    fail "Anthropic credentials not installed at ~/.claude/.credentials.json"
+  fi
+
+  # 4d. Work-context exclusion (structural): no host ~/.claude bind mount.
+  # The credentials are read from the EPHEMERAL tmpfs path, not from a
+  # bind-mounted host directory. Host conversations + work MCP configs
+  # therefore cannot reach the sandbox.
+  bind_count=$(docker inspect "$TEST_CONTAINER" \
+    --format '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}} {{end}}{{end}}' \
+    2>/dev/null | tr ' ' '\n' | grep -cE '\.claude$' || true)
+  if [[ "$bind_count" == "0" ]]; then
+    ok "no host ~/.claude/ bind mount (work conversations isolated)"
+  else
+    fail "found $bind_count bind mount(s) targeting a .claude dir (potential work-context leak)"
   fi
 
   # 5. HTTPS insteadOf installed. git stores the key as `insteadOf` with

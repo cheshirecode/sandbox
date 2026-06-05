@@ -52,6 +52,21 @@ else
   echo "sandbox-entrypoint: WARN — no token piped, no cached auth. gh + push will fail." >&2
 fi
 
+# --- 2b. Anthropic OAuth via tmpfs (optional auto-pipe) -------------------
+# /run/secrets/anthropic_token is the on-disk JSON Claude Code expects at
+# ~/.claude/.credentials.json. The named volume <login>-claude is mounted at
+# ~/.claude so the credentials persist across docker rm.
+# Graceful skip if not piped — Claude Code can still be installed + logged-
+# in manually inside the sandbox.
+ANTHROPIC_TOKEN_FILE="/run/secrets/anthropic_token"
+if [[ -s "$ANTHROPIC_TOKEN_FILE" ]]; then
+  mkdir -p "$HOME/.claude"
+  cp "$ANTHROPIC_TOKEN_FILE" "$HOME/.claude/.credentials.json"
+  chmod 0600 "$HOME/.claude/.credentials.json"
+  shred -u "$ANTHROPIC_TOKEN_FILE" 2>/dev/null || rm -f "$ANTHROPIC_TOKEN_FILE"
+  echo "sandbox-entrypoint: installed Anthropic credentials at ~/.claude/.credentials.json"
+fi
+
 # --- 3. Git identity derived from the piped token's account ---------------
 # Precedence: GIT_AUTHOR_NAME/EMAIL env override → gh api user (the token's
 # actual GitHub account, so a fork "just works") → fallback strings.
