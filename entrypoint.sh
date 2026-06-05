@@ -37,14 +37,32 @@ fi
 # /run/secrets/gh_token is a tmpfs path (declared in mounts.env). The host's
 # bin/sandbox.sh pipes `gh auth token` into it before starting this container.
 # We never read GH_TOKEN from $env — that would leak via `docker inspect`.
+#
+# We write hosts.yml DIRECTLY instead of using `gh auth login --with-token`.
+# Why: `gh auth login --with-token` validates the token has `read:org` scope,
+# which classic `ghp_` PATs commonly lack. But the same token works fine for
+# `gh api`, `gh repo clone`, `git push`, etc. We use `gh api user` (which
+# doesn't require `read:org`) to fetch the login, then write hosts.yml in the
+# format gh itself produces.
 TOKEN_FILE="/run/secrets/gh_token"
 if [[ -s "$TOKEN_FILE" ]]; then
-  # gh auth login --with-token reads from stdin, persists oauth state to
-  # ~/.config/gh (mounted as the per-user named volume "${LOGIN}-gh").
-  gh auth login --with-token < "$TOKEN_FILE" --hostname github.com 2>/dev/null || {
-    echo "sandbox-entrypoint: gh auth login failed (token rejected or expired)" >&2
-  }
-  # Wipe after use — token lives in the named volume's hosts.yml from here on.
+  GH_TOKEN_VAL="$(cat "$TOKEN_FILE")"
+  # Probe the token's actual GitHub login (works on minimal-scope tokens).
+  LOGIN_PROBE=$(GH_TOKEN="$GH_TOKEN_VAL" gh api user --jq .login 2>/dev/null || true)
+  if [[ -n "$LOGIN_PROBE" ]]; then
+    mkdir -p "$HOME/.config/gh"
+    cat > "$HOME/.config/gh/hosts.yml" <<HOSTS_YML
+github.com:
+    git_protocol: https
+    user: $LOGIN_PROBE
+    oauth_token: $GH_TOKEN_VAL
+HOSTS_YML
+    chmod 0600 "$HOME/.config/gh/hosts.yml"
+    echo "sandbox-entrypoint: gh auth configured for $LOGIN_PROBE (hosts.yml written directly; no scope check)"
+  else
+    echo "sandbox-entrypoint: WARN — token piped but \`gh api user\` rejected it (network or invalid token)" >&2
+  fi
+  unset GH_TOKEN_VAL LOGIN_PROBE
   shred -u "$TOKEN_FILE" 2>/dev/null || rm -f "$TOKEN_FILE"
 elif gh auth status >/dev/null 2>&1; then
   echo "sandbox-entrypoint: reusing cached gh auth (no fresh token piped in)."
