@@ -77,6 +77,26 @@ probe_anthropic_credentials() {
   return 1
 }
 
+# Probe host for OpenAI Codex credentials. Same shape as Anthropic — file
+# first, macOS keychain fallback. Returns auth.json blob on stdout, exit 0
+# if found; exit 1 silently otherwise (graceful skip).
+probe_openai_credentials() {
+  local cred_file="$HOME/.codex/auth.json"
+  if [[ -s "$cred_file" ]]; then
+    cat "$cred_file"
+    return 0
+  fi
+  if [[ "$(uname -s)" == "Darwin" ]] && command -v security >/dev/null; then
+    local kc
+    kc=$(security find-generic-password -s "Codex Safe Storage" -a "Codex Key" -w 2>/dev/null || true)
+    if [[ -n "$kc" ]]; then
+      printf '%s' "$kc"
+      return 0
+    fi
+  fi
+  return 1
+}
+
 build_env_args() {
   local args=()
   for var in "${SANDBOX_ENV_ALLOWLIST[@]}"; do
@@ -183,6 +203,16 @@ cmd_up() {
     echo "sandbox: piped Anthropic OAuth credentials (Claude Code will inherit your session)"
   else
     echo "sandbox: no Anthropic credentials on host — Claude Code will need manual login if used"
+  fi
+
+  # Same pattern for OpenAI Codex (gracefully skipped if host has no codex login).
+  if openai_json="$(probe_openai_credentials)"; then
+    printf '%s' "$openai_json" | docker exec -i "$CONTAINER_NAME" sh -c \
+      'cat > /run/secrets/openai_token && chmod 0400 /run/secrets/openai_token'
+    unset openai_json
+    echo "sandbox: piped OpenAI Codex credentials (codex CLI will inherit your session)"
+  else
+    echo "sandbox: no Codex credentials on host — codex CLI will need manual login if used"
   fi
 
   # Replace the sleep with the real entrypoint, attached.

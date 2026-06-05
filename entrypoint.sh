@@ -67,6 +67,16 @@ if [[ -s "$ANTHROPIC_TOKEN_FILE" ]]; then
   echo "sandbox-entrypoint: installed Anthropic credentials at ~/.claude/.credentials.json"
 fi
 
+# --- 2c. OpenAI Codex via tmpfs (same pattern as Anthropic) ---------------
+OPENAI_TOKEN_FILE="/run/secrets/openai_token"
+if [[ -s "$OPENAI_TOKEN_FILE" ]]; then
+  mkdir -p "$HOME/.codex"
+  cp "$OPENAI_TOKEN_FILE" "$HOME/.codex/auth.json"
+  chmod 0600 "$HOME/.codex/auth.json"
+  shred -u "$OPENAI_TOKEN_FILE" 2>/dev/null || rm -f "$OPENAI_TOKEN_FILE"
+  echo "sandbox-entrypoint: installed Codex credentials at ~/.codex/auth.json"
+fi
+
 # --- 3. Git identity derived from the piped token's account ---------------
 # Precedence: GIT_AUTHOR_NAME/EMAIL env override → gh api user (the token's
 # actual GitHub account, so a fork "just works") → fallback strings.

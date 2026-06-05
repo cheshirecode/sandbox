@@ -142,6 +142,13 @@ start_test_container() {
     'cat > /run/secrets/anthropic_token && chmod 0400 /run/secrets/anthropic_token' \
     <<<'{"access_token":"fake-anthropic-oauth-not-a-real-credential","refresh_token":"fake-refresh"}'
 
+  # Plant a structurally-valid-but-non-functional Codex auth.json blob.
+  # Mirrors the Anthropic plant exactly so test #4e-#4g exercise the same
+  # read-and-shred path for the openai_token tmpfs entry.
+  docker exec -i "$TEST_CONTAINER" sh -c \
+    'cat > /run/secrets/openai_token && chmod 0400 /run/secrets/openai_token' \
+    <<<'{"OPENAI_API_KEY":"sk-fake-not-a-real-credential","auth_mode":"oauth","tokens":{"access_token":"fake","refresh_token":"fake"}}'
+
   # Run the entrypoint in the background; capture output to /tmp inside.
   docker exec -d "$TEST_CONTAINER" bash -c '/usr/local/bin/sandbox-entrypoint sleep 60 > /tmp/entrypoint.out 2>&1'
   sleep 3  # give entrypoint time to run snapshots, git config, etc.
@@ -231,6 +238,35 @@ test_functional() {
     ok "no host ~/.claude/ bind mount (work conversations isolated)"
   else
     fail "found $bind_count bind mount(s) targeting a .claude dir (potential work-context leak)"
+  fi
+
+  # 4e. Codex tmpfs token also shredded.
+  if ! docker exec "$TEST_CONTAINER" test -f /run/secrets/openai_token; then
+    ok "tmpfs openai/codex token wiped after entrypoint read"
+  else
+    fail "tmpfs openai/codex token still present (not shredded)"
+  fi
+
+  # 4f. Codex auth.json installed at ~/.codex/ mode 0600.
+  if docker exec "$TEST_CONTAINER" test -f /workspace/home/.codex/auth.json; then
+    mode=$(docker exec "$TEST_CONTAINER" stat -c '%a' /workspace/home/.codex/auth.json 2>/dev/null)
+    if [[ "$mode" == "600" ]]; then
+      ok "Codex credentials installed at ~/.codex/auth.json mode 0600"
+    else
+      fail "Codex credentials mode is '$mode' (expected 600)"
+    fi
+  else
+    fail "Codex credentials not installed at ~/.codex/auth.json"
+  fi
+
+  # 4g. Work-context exclusion (structural): no host ~/.codex bind mount.
+  bind_count_codex=$(docker inspect "$TEST_CONTAINER" \
+    --format '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}} {{end}}{{end}}' \
+    2>/dev/null | tr ' ' '\n' | grep -cE '\.codex$' || true)
+  if [[ "$bind_count_codex" == "0" ]]; then
+    ok "no host ~/.codex/ bind mount (Codex sessions isolated)"
+  else
+    fail "found $bind_count_codex bind mount(s) targeting a .codex dir"
   fi
 
   # 5. HTTPS insteadOf installed. git stores the key as `insteadOf` with
