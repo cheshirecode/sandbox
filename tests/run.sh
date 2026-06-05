@@ -259,6 +259,26 @@ test_functional() {
     fail "Codex credentials not installed at ~/.codex/auth.json"
   fi
 
+  # 4i. Named-volume mount points are writable by dev (the actual container user).
+  # Regression test for a real bug found during dogfood: image's mount targets
+  # were root-owned, so when docker initialized empty named volumes from the
+  # image, the resulting volumes were unwritable by dev. The prior 16 tests
+  # missed this because the test container didn't run with `--user dev`.
+  cleanup_test_container
+  docker run -d --name "$TEST_CONTAINER" \
+    --mount "type=volume,source=test-claude-vol,target=/workspace/home/.claude" \
+    --mount "type=volume,source=test-codex-vol,target=/workspace/home/.codex" \
+    --user dev \
+    "$TEST_IMAGE" sleep 60 >/dev/null
+  if docker exec "$TEST_CONTAINER" sh -c \
+      'touch /workspace/home/.claude/.write-probe && touch /workspace/home/.codex/.write-probe'; then
+    ok "named-volume mount points writable by dev user"
+  else
+    fail "named-volume mount points NOT writable by dev (root-owned image dirs?)"
+  fi
+  docker rm -f "$TEST_CONTAINER" >/dev/null 2>&1 || true
+  docker volume rm test-claude-vol test-codex-vol >/dev/null 2>&1 || true
+
   # 4h. Graceful no-credentials startup (Linux/CI parity).
   # Asserts the entrypoint runs cleanly when ZERO LLM tokens are piped —
   # the "host has no LLM CLI installed" path that CI always exercises.

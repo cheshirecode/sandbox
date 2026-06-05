@@ -55,7 +55,19 @@ RUN groupadd -g "$HOST_GID" dev 2>/dev/null || groupmod -n dev "$(getent group $
     && chmod 0440 /etc/sudoers.d/dev
 
 # /workspace skeleton — actual content is bind-mounted at runtime.
-RUN mkdir -p /workspace/oss /workspace/home /workspace/inbox \
+# IMPORTANT: pre-create the named-volume mount targets (.claude, .codex,
+# .cache/toolchains, .config/gh) as dev-owned. On FIRST mount, docker copies
+# the image's directory content into the empty named volume, preserving
+# ownership. Without these dirs being dev-owned in the image, the volumes
+# materialize root-owned and the dev-user entrypoint can't write credentials.
+RUN mkdir -p \
+      /workspace/oss \
+      /workspace/home \
+      /workspace/home/.claude \
+      /workspace/home/.codex \
+      /workspace/home/.cache/toolchains \
+      /workspace/home/.config/gh \
+      /workspace/inbox \
     && chown -R dev:dev /workspace
 
 # --- Entrypoint + autosave scripts -----------------------------------------
