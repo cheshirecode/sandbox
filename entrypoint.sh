@@ -59,6 +59,12 @@ github.com:
 HOSTS_YML
     chmod 0600 "$HOME/.config/gh/hosts.yml"
     echo "sandbox-entrypoint: gh auth configured for $LOGIN_PROBE (hosts.yml written directly; no scope check)"
+    # `gh auth setup-git` wires gh as git's HTTPS credential helper — without
+    # this, `git push https://github.com/...` prompts for username/password
+    # even though `gh` is authenticated. Surfaced by dogfood: pushing a fix
+    # PR from inside the sandbox failed with "could not read Username" until
+    # we ran this manually.
+    gh auth setup-git 2>/dev/null || echo "sandbox-entrypoint: WARN — \`gh auth setup-git\` failed; git push via HTTPS may not work" >&2
   else
     echo "sandbox-entrypoint: WARN — token piped but \`gh api user\` rejected it (network or invalid token)" >&2
   fi
