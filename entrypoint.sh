@@ -116,7 +116,7 @@ if gh auth status >/dev/null 2>&1; then
   if [[ -n "$GRANTED" ]]; then
     MISSING=""
     for scope in $RECOMMENDED_SCOPES; do
-      echo " $GRANTED " | grep -qE "[ ,]$scope[ ,]" || MISSING="$MISSING $scope"
+      echo " $GRANTED " | grep -qE "[ ,]${scope}[ ,]" || MISSING="$MISSING $scope"
     done
     if [[ -n "${MISSING# }" ]]; then
       echo "sandbox-entrypoint: WARN — gh token missing recommended scope(s):${MISSING}" >&2
