@@ -166,11 +166,16 @@ that shipped despite ~18 structural tests passing.
     work git config) instead of via `docker exec` into the sandbox.
     The sandbox's identity isolation only applies INSIDE the container;
     it cannot constrain what sub-agents do on the host. Real leak observed
-    this session: `cheshirecode/preact-marvel-pwa@896e57b` committed by
-    `fredtran@ideogram.ai`. **Mitigation:** every commit-mutating sub-agent
+    this session: a sub-agent committed to a `cheshirecode/*` repo with
+    a `@ideogram.ai` work email. **Resolution:** the affected repo was
+    nuked from GitHub by the maintainer — the leaked commit no longer
+    exists. **Forward mitigation:** every commit-mutating sub-agent
     prompt must explicitly say `docker exec cheshirecode-sandbox bash -c
-    "cd ...; git -c user.name=cheshirecode -c user.email=<...>noreply...
-    commit -m '...'"` — never `git commit` directly in their bash.
+    "cd ...; git -c user.name=cheshirecode -c user.email=<id>+cheshirecode@users.noreply.github.com
+    commit -m '...'"` — never `git commit` directly in the agent's bash
+    tool. Author-audit every push (`gh api repos/<owner>/<repo>/commits
+    --jq '.[].commit.author.email'`) before assuming the sandbox's
+    identity isolation held end-to-end.
 
 ## Subcommand reference
 
