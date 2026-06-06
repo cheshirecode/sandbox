@@ -396,24 +396,191 @@ cmd_nuke() {
   echo "sandbox nuke: state cleared. Next \`bin/sandbox.sh up\` is a fresh start."
 }
 
+# --- Subcommand: list -----------------------------------------------------
+# Show every sandbox-shaped resource on this host across ALL profiles.
+# A "sandbox profile" is identified by the convention <login>-{toolchains,
+# gh,claude,codex} named volume set + <login>-sandbox container name +
+# <login>/sandbox:v* image. Detects orphans (volumes without a container,
+# images without a referencing container) and surfaces them per profile.
+cmd_list() {
+  # Discover candidate logins by scanning volume names for the toolchains
+  # suffix — that's the most-likely-present volume in any working profile.
+  local logins
+  logins=$(docker volume ls --format '{{.Name}}' 2>/dev/null \
+    | awk -F'-toolchains' '/-toolchains$/ {print $1}' | sort -u)
+  if [[ -z "$logins" ]]; then
+    echo "sandbox list: no sandbox profiles detected on this host."
+    return 0
+  fi
+  printf '%-22s %-12s %-10s %-10s %-10s\n' PROFILE CONTAINER VOL_GH VOL_CLAUDE VOL_CODEX
+  printf '%-22s %-12s %-10s %-10s %-10s\n' ------- --------- ------ ---------- ---------
+  while IFS= read -r login; do
+    [[ -z "$login" ]] && continue
+    local cn="$login-sandbox"
+    local cstate
+    cstate=$(docker ps -a --filter "name=^${cn}$" --format '{{.Status}}' 2>/dev/null | head -1)
+    [[ -z "$cstate" ]] && cstate="(none)"
+    local vgh vclaude vcodex
+    vgh=$(docker volume ls --format '{{.Name}}' | grep -qx "$login-gh" && echo "ok" || echo "-")
+    vclaude=$(docker volume ls --format '{{.Name}}' | grep -qx "$login-claude" && echo "ok" || echo "-")
+    vcodex=$(docker volume ls --format '{{.Name}}' | grep -qx "$login-codex" && echo "ok" || echo "-")
+    printf '%-22s %-12s %-10s %-10s %-10s\n' "$login" "${cstate:0:11}" "$vgh" "$vclaude" "$vcodex"
+  done <<< "$logins"
+  echo
+  echo "Profiles detected by their <login>-toolchains volume."
+  echo "Active profile (from mounts.env): $SANDBOX_LOGIN"
+}
+
+# --- Subcommand: prune ----------------------------------------------------
+# Sweep stale sandbox resources. Dry-run by default; --apply to remove.
+# Identifies:
+#   1. Containers named <login>-sandbox in Exited/Created state (any age).
+#   2. Volumes <login>-{toolchains,gh,claude,codex} not used by any container.
+#   3. Images <login>/sandbox:v* not used by any container.
+# With --hard: also list dangling images and stopped non-sandbox containers
+# (caller must explicitly confirm — these are non-sandbox resources).
+cmd_prune() {
+  local apply=0 hard=0
+  for arg in "$@"; do
+    case "$arg" in
+      --apply) apply=1 ;;
+      --hard)  hard=1 ;;
+      *) echo "sandbox prune: unknown flag $arg" >&2; return 2 ;;
+    esac
+  done
+
+  local mode="DRY-RUN"
+  (( apply )) && mode="APPLY"
+  echo "sandbox prune [$mode]:"
+
+  # 1. Non-running sandbox containers
+  local stale_ctrs
+  stale_ctrs=$(docker ps -a --format '{{.Names}}\t{{.Status}}' \
+    | awk -F'\t' '$1 ~ /-sandbox$/ && $2 !~ /^Up/ {print $1}')
+  if [[ -n "$stale_ctrs" ]]; then
+    echo "  stopped sandbox containers:"
+    while IFS= read -r c; do
+      echo "    - $c"
+      (( apply )) && docker rm "$c" >/dev/null 2>&1 && echo "      removed"
+    done <<< "$stale_ctrs"
+  fi
+
+  # 2. Orphan sandbox volumes (no container references them)
+  local stale_vols
+  stale_vols=$(docker volume ls --format '{{.Name}}' \
+    | grep -E -- '-(toolchains|gh|claude|codex)$' || true)
+  if [[ -n "$stale_vols" ]]; then
+    while IFS= read -r v; do
+      [[ -z "$v" ]] && continue
+      local users
+      users=$(docker ps -a --filter "volume=$v" --format '{{.Names}}' 2>/dev/null | tr '\n' ' ')
+      if [[ -z "$users" ]]; then
+        echo "  orphan volume: $v"
+        (( apply )) && docker volume rm "$v" >/dev/null 2>&1 && echo "    removed"
+      fi
+    done <<< "$stale_vols"
+  fi
+
+  # 3. Unused sandbox images
+  local sandbox_imgs
+  sandbox_imgs=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '/sandbox:' || true)
+  if [[ -n "$sandbox_imgs" ]]; then
+    while IFS= read -r img; do
+      [[ -z "$img" ]] && continue
+      local users
+      users=$(docker ps -a --filter "ancestor=$img" --format '{{.Names}}' 2>/dev/null | tr '\n' ' ')
+      if [[ -z "$users" ]]; then
+        echo "  unused image: $img"
+        (( apply )) && docker image rm "$img" >/dev/null 2>&1 && echo "    removed"
+      fi
+    done <<< "$sandbox_imgs"
+  fi
+
+  # 4. --hard: surface (but never auto-remove) non-sandbox docker hoard.
+  if (( hard )); then
+    echo
+    echo "  --hard surface (non-sandbox; manual decision):"
+    local other_stopped
+    other_stopped=$(docker ps -a --format '{{.Names}}\t{{.Status}}' \
+      | awk -F'\t' '$1 !~ /-sandbox$/ && $2 ~ /^(Exited|Created)/ {print "    "$1" ("$2")"}')
+    if [[ -n "$other_stopped" ]]; then
+      echo "  non-sandbox stopped containers (count: $(echo "$other_stopped" | wc -l | tr -d ' ')):"
+      echo "$other_stopped" | head -10
+      echo "    Remove with: docker container prune -f"
+    fi
+    local dangling
+    dangling=$(docker images -f 'dangling=true' --format '{{.ID}}' | wc -l | tr -d ' ')
+    if (( dangling > 0 )); then
+      echo "  dangling images: $dangling. Remove with: docker image prune -f"
+    fi
+    local bx
+    bx=$(docker ps --format '{{.Names}}' | grep -E '^buildx_buildkit' | wc -l | tr -d ' ')
+    if (( bx > 0 )); then
+      echo "  buildkit instances running: $bx (used by docker buildx; leave unless rebuilding)"
+    fi
+  fi
+
+  if (( ! apply )); then
+    echo
+    echo "Dry-run only. Re-run with --apply to remove."
+    echo "Add --hard to surface (not remove) non-sandbox hoard."
+  fi
+}
+
+# --- Subcommand: inspect --------------------------------------------------
+# Detailed state of a single profile (default = active SANDBOX_LOGIN).
+cmd_inspect() {
+  local login="${1:-$SANDBOX_LOGIN}"
+  local cn="$login-sandbox"
+  local img="$login/sandbox:v1"
+  echo "sandbox inspect [$login]:"
+  echo "  container: $cn"
+  docker ps -a --filter "name=^${cn}$" --format '    state: {{.Status}}\n    image: {{.Image}}\n    id:    {{.ID}}' || echo "    (none)"
+  echo "  image:     $img"
+  docker images --filter "reference=$img" --format '    size:  {{.Size}}\n    id:    {{.ID}}\n    created: {{.CreatedSince}}' || echo "    (none)"
+  echo "  volumes:"
+  for v in "$login-toolchains" "$login-gh" "$login-claude" "$login-codex"; do
+    if docker volume ls --format '{{.Name}}' | grep -qx "$v"; then
+      local size
+      size=$(docker run --rm -v "$v:/v" alpine du -sh /v 2>/dev/null | awk '{print $1}' || echo '?')
+      printf '    %-30s size=%s\n' "$v" "$size"
+    else
+      printf '    %-30s (absent)\n' "$v"
+    fi
+  done
+  echo "  mount paths (from mounts.env):"
+  echo "    SANDBOX_WORKSPACE=$SANDBOX_WORKSPACE"
+  echo "    SANDBOX_HOME_DIR=$SANDBOX_HOME_DIR"
+  echo "    SANDBOX_INBOX_DIR=$SANDBOX_INBOX_DIR"
+}
+
 # --- Dispatch --------------------------------------------------------------
 usage() {
   cat <<EOF
 sandbox — host-side wrapper around an ephemeral identity-isolated dev container.
 
+Lifecycle (active profile from mounts.env, currently: $SANDBOX_LOGIN):
   bin/sandbox.sh up               build (if needed) + run + drop into shell
   bin/sandbox.sh exec <cmd>       run a command in the running container
   bin/sandbox.sh down             stop the container (autosave fires)
   bin/sandbox.sh rebuild          force rebuild the image
-  bin/sandbox.sh doctor           check host preconditions + show detected layout
-  bin/sandbox.sh verify-llm-auth  in-container check: do the piped LLM creds
-                                  actually authenticate?
-  bin/sandbox.sh test-repo <name> clone cheshirecode/<name> (or <owner>/<repo>),
-                                  install, run \`npm test\`. Exit code = test
-                                  result. n=3-evidenced dogfood shortcut.
-  bin/sandbox.sh nuke [--all]     remove container + image + named volumes
-                                  (use --all to also remove .sandbox-home and
-                                  learnings-inbox runtime dirs)
+  bin/sandbox.sh test-repo <name> clone <name>, install, run \`npm test\`
+  bin/sandbox.sh verify-llm-auth  in-container check piped LLM creds work
+
+Inspection / management (any profile on this host):
+  bin/sandbox.sh list             list all sandbox profiles on host
+  bin/sandbox.sh inspect [<login>] detail one profile (default: active)
+  bin/sandbox.sh doctor           host preconditions + active profile layout
+
+Cleanup:
+  bin/sandbox.sh prune            dry-run: stopped containers + orphan
+                                  volumes + unused sandbox images
+  bin/sandbox.sh prune --apply    actually remove the above
+  bin/sandbox.sh prune --hard     also surface (read-only) non-sandbox
+                                  hoard — stopped containers, dangling
+                                  images, buildkit instances
+  bin/sandbox.sh nuke [--all]     full teardown of ACTIVE profile
+                                  (--all also removes host runtime dirs)
 EOF
 }
 
@@ -422,6 +589,9 @@ case "$cmd" in
   up)              cmd_up "$@" ;;
   exec)            cmd_exec "$@" ;;
   down)            cmd_down ;;
+  list)            cmd_list ;;
+  inspect)         cmd_inspect "$@" ;;
+  prune)           cmd_prune "$@" ;;
   rebuild)         cmd_rebuild ;;
   doctor)          cmd_doctor ;;
   verify-llm-auth) cmd_verify_llm_auth ;;
