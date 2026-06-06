@@ -361,21 +361,22 @@ cmd_verify_llm_auth() {
 }
 
 # --- Subcommand: test-repo ------------------------------------------------
-# n=3-evidenced shortcut: clone a cheshirecode/* repo + install + run its
+# n=3-evidenced shortcut: clone a $SANDBOX_LOGIN/* repo + install + run its
 # tests inside the running sandbox. Exit code = exit code of `npm test`.
 # No clever output parsing — modern runners (vitest, jest, tape, mocha,
 # pytest, cargo test) all exit non-zero on failure. Just trust the code.
 #
 # Usage:
-#   bin/sandbox.sh test-repo <repo-name>          # cheshirecode/<repo>
+#   bin/sandbox.sh test-repo <repo-name>          # $SANDBOX_LOGIN/<repo>
 #   bin/sandbox.sh test-repo <owner>/<repo>       # explicit owner
 cmd_test_repo() {
   local arg="${1:-}"
   [[ -z "$arg" ]] && { echo "sandbox test-repo: missing <repo-name>" >&2; return 2; }
 
-  # Normalize: if no `/`, assume cheshirecode/<repo>
+  # Normalize: if no `/`, prepend the active profile's login (was hardcoded
+  # cheshirecode pre-2026-06; broke for any non-cheshirecode profile).
   local full_repo
-  if [[ "$arg" == */* ]]; then full_repo="$arg"; else full_repo="cheshirecode/$arg"; fi
+  if [[ "$arg" == */* ]]; then full_repo="$arg"; else full_repo="$SANDBOX_LOGIN/$arg"; fi
   local repo_name="${full_repo##*/}"
   local target="/workspace/oss/$repo_name"
 
