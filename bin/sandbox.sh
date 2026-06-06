@@ -22,6 +22,37 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Profile selection: --profile=<name> flag (in argv anywhere) OR
+# $SANDBOX_PROFILE env. Profile files live at:
+#   ~/.config/sandbox/profiles/<name>.env
+# Sourced BEFORE mounts.env so the existing ${VAR:-default} pattern honors
+# overrides (SANDBOX_LOGIN, SANDBOX_WORKSPACE, SANDBOX_REFUSE_PATTERNS, etc.).
+PROFILE_DIR="${SANDBOX_PROFILE_DIR:-$HOME/.config/sandbox/profiles}"
+SANDBOX_PROFILE_NAME="${SANDBOX_PROFILE:-}"
+# Scan argv for --profile=<name> (allowed anywhere — applies to all subcmds).
+_REMAINING_ARGS=()
+for _arg in "$@"; do
+  case "$_arg" in
+    --profile=*) SANDBOX_PROFILE_NAME="${_arg#--profile=}" ;;
+    *)           _REMAINING_ARGS+=("$_arg") ;;
+  esac
+done
+set -- ${_REMAINING_ARGS[@]+"${_REMAINING_ARGS[@]}"}
+unset _REMAINING_ARGS _arg
+
+if [[ -n "$SANDBOX_PROFILE_NAME" ]]; then
+  PROFILE_FILE="$PROFILE_DIR/${SANDBOX_PROFILE_NAME}.env"
+  if [[ ! -f "$PROFILE_FILE" ]]; then
+    echo "sandbox: profile '$SANDBOX_PROFILE_NAME' not found at $PROFILE_FILE" >&2
+    echo "  list profiles: bin/sandbox.sh profile-list" >&2
+    echo "  create:        bin/sandbox.sh profile-new $SANDBOX_PROFILE_NAME" >&2
+    exit 78
+  fi
+  # shellcheck disable=SC1090
+  source "$PROFILE_FILE"
+fi
+
 # shellcheck source=../mounts.env
 source "$REPO_ROOT/mounts.env"
 
@@ -554,18 +585,125 @@ cmd_inspect() {
   echo "    SANDBOX_INBOX_DIR=$SANDBOX_INBOX_DIR"
 }
 
+# --- Subcommand: profile-new ----------------------------------------------
+# Scaffold a profile config file at $PROFILE_DIR/<name>.env. Interactive
+# defaults pulled from current env if not passed by flag.
+cmd_profile_new() {
+  local name="${1:-}"
+  [[ -z "$name" ]] && { echo "usage: profile-new <name> [--login=<gh-login>] [--workspace=<path>]" >&2; return 2; }
+  shift || true
+
+  local login="" workspace="" refuse_patterns=""
+  for arg in "$@"; do
+    case "$arg" in
+      --login=*)            login="${arg#--login=}" ;;
+      --workspace=*)        workspace="${arg#--workspace=}" ;;
+      --refuse-patterns=*)  refuse_patterns="${arg#--refuse-patterns=}" ;;
+      *) echo "sandbox profile-new: unknown flag $arg" >&2; return 2 ;;
+    esac
+  done
+
+  mkdir -p "$PROFILE_DIR"
+  local out="$PROFILE_DIR/${name}.env"
+  if [[ -f "$out" ]]; then
+    echo "sandbox profile-new: $out already exists. Edit by hand or delete first." >&2
+    return 1
+  fi
+
+  {
+    printf '# Sandbox profile: %s\n' "$name"
+    printf '# Sourced before mounts.env by bin/sandbox.sh when --profile=%s is set.\n' "$name"
+    printf '# Anything set here overrides the auto-detected mounts.env defaults.\n\n'
+    if [[ -n "$login" ]]; then
+      printf 'export SANDBOX_LOGIN=%s\n' "$login"
+    else
+      printf '# export SANDBOX_LOGIN=<gh-login>      # leave commented to auto-detect from `gh api user`\n'
+    fi
+    if [[ -n "$workspace" ]]; then
+      printf 'export SANDBOX_WORKSPACE=%s\n' "$workspace"
+    else
+      printf '# export SANDBOX_WORKSPACE=<host-dir>  # default = parent dir of this sandbox repo\n'
+    fi
+    if [[ -n "$refuse_patterns" ]]; then
+      printf 'export SANDBOX_REFUSE_PATTERNS=%s\n' "$refuse_patterns"
+    else
+      printf '# export SANDBOX_REFUSE_PATTERNS="MYCORP|VENDOR_INTERNAL"  # extra env-var-name patterns the entrypoint refuses\n'
+    fi
+  } > "$out"
+  chmod 0600 "$out"
+  echo "sandbox profile-new: wrote $out"
+  echo "  use: bin/sandbox.sh up --profile=$name"
+}
+
+# --- Subcommand: profile-list ---------------------------------------------
+cmd_profile_list() {
+  if [[ ! -d "$PROFILE_DIR" ]]; then
+    echo "sandbox profile-list: no profile dir at $PROFILE_DIR"
+    return 0
+  fi
+  local count=0
+  printf '%-20s %-20s %s\n' NAME LOGIN WORKSPACE
+  printf '%-20s %-20s %s\n' ---- ----- ---------
+  shopt -s nullglob
+  for f in "$PROFILE_DIR"/*.env; do
+    local name login workspace
+    name="$(basename "$f" .env)"
+    login="$(awk -F= '/^export SANDBOX_LOGIN=/ {print $2; exit}' "$f")"
+    workspace="$(awk -F= '/^export SANDBOX_WORKSPACE=/ {print $2; exit}' "$f")"
+    printf '%-20s %-20s %s\n' "$name" "${login:-<auto>}" "${workspace:-<auto>}"
+    count=$((count+1))
+  done
+  shopt -u nullglob
+  echo
+  echo "Profile dir: $PROFILE_DIR ($count profile$([[ $count != 1 ]] && echo s))"
+  echo "Active (--profile / \$SANDBOX_PROFILE): ${SANDBOX_PROFILE_NAME:-<none — using mounts.env auto-detect>}"
+}
+
+# --- Subcommand: profile-delete -------------------------------------------
+# Remove the profile config file ONLY — does not touch docker resources.
+# Use bin/sandbox.sh nuke --profile=<name> first if you also want the
+# container/volumes/image gone.
+cmd_profile_delete() {
+  local name="${1:-}"
+  [[ -z "$name" ]] && { echo "usage: profile-delete <name>" >&2; return 2; }
+  local f="$PROFILE_DIR/${name}.env"
+  if [[ ! -f "$f" ]]; then
+    echo "sandbox profile-delete: $f does not exist." >&2
+    return 1
+  fi
+  rm -f "$f"
+  echo "sandbox profile-delete: removed $f"
+  # Warn if docker resources still exist under this login
+  local login
+  login="$(grep -E '^export SANDBOX_LOGIN=' "$f" 2>/dev/null | awk -F= '{print $2}' || echo "$name")"
+  if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "${login}-sandbox"; then
+    echo "  NOTE: docker resources for login=$login still exist." >&2
+    echo "        Remove with: bin/sandbox.sh nuke --profile=$name   (or:  bin/sandbox.sh prune --apply)" >&2
+  fi
+}
+
 # --- Dispatch --------------------------------------------------------------
 usage() {
   cat <<EOF
 sandbox — host-side wrapper around an ephemeral identity-isolated dev container.
 
-Lifecycle (active profile from mounts.env, currently: $SANDBOX_LOGIN):
-  bin/sandbox.sh up               build (if needed) + run + drop into shell
-  bin/sandbox.sh exec <cmd>       run a command in the running container
-  bin/sandbox.sh down             stop the container (autosave fires)
-  bin/sandbox.sh rebuild          force rebuild the image
-  bin/sandbox.sh test-repo <name> clone <name>, install, run \`npm test\`
-  bin/sandbox.sh verify-llm-auth  in-container check piped LLM creds work
+Active profile (--profile / \$SANDBOX_PROFILE / mounts.env auto-detect):
+  login=$SANDBOX_LOGIN  workspace=$SANDBOX_WORKSPACE
+
+Lifecycle (per-profile; add --profile=<name> to switch):
+  bin/sandbox.sh up [--profile=<name>]      build + run + shell
+  bin/sandbox.sh exec <cmd> [--profile=...]  run cmd in running container
+  bin/sandbox.sh down [--profile=...]        stop container
+  bin/sandbox.sh rebuild [--profile=...]     force rebuild
+  bin/sandbox.sh test-repo <name>            clone+install+test in container
+  bin/sandbox.sh verify-llm-auth             in-container LLM auth check
+
+Profile CRUD (config files at \$HOME/.config/sandbox/profiles/<name>.env):
+  bin/sandbox.sh profile-new <name> [--login=<gh-login>] [--workspace=<dir>]
+                                             create a profile config file
+  bin/sandbox.sh profile-list                list known profiles
+  bin/sandbox.sh profile-delete <name>       remove the profile config file
+                                             (use \`prune\` or \`nuke\` for docker state)
 
 Inspection / management (any profile on this host):
   bin/sandbox.sh list             list all sandbox profiles on host
@@ -592,6 +730,9 @@ case "$cmd" in
   list)            cmd_list ;;
   inspect)         cmd_inspect "$@" ;;
   prune)           cmd_prune "$@" ;;
+  profile-new)     cmd_profile_new "$@" ;;
+  profile-list)    cmd_profile_list ;;
+  profile-delete)  cmd_profile_delete "$@" ;;
   rebuild)         cmd_rebuild ;;
   doctor)          cmd_doctor ;;
   verify-llm-auth) cmd_verify_llm_auth ;;
