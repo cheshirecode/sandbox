@@ -295,6 +295,44 @@ cmd_verify_llm_auth() {
   echo "sandbox: all installed LLM CLIs verified"
 }
 
+# --- Subcommand: test-repo ------------------------------------------------
+# n=3-evidenced shortcut: clone a cheshirecode/* repo + install + run its
+# tests inside the running sandbox. Exit code = exit code of `npm test`.
+# No clever output parsing — modern runners (vitest, jest, tape, mocha,
+# pytest, cargo test) all exit non-zero on failure. Just trust the code.
+#
+# Usage:
+#   bin/sandbox.sh test-repo <repo-name>          # cheshirecode/<repo>
+#   bin/sandbox.sh test-repo <owner>/<repo>       # explicit owner
+cmd_test_repo() {
+  local arg="${1:-}"
+  [[ -z "$arg" ]] && { echo "sandbox test-repo: missing <repo-name>" >&2; return 2; }
+
+  # Normalize: if no `/`, assume cheshirecode/<repo>
+  local full_repo
+  if [[ "$arg" == */* ]]; then full_repo="$arg"; else full_repo="cheshirecode/$arg"; fi
+  local repo_name="${full_repo##*/}"
+  local target="/workspace/oss/$repo_name"
+
+  if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
+    echo "sandbox test-repo: container not running. Run \`bin/sandbox.sh up\` first." >&2
+    return 2
+  fi
+
+  echo "sandbox test-repo: $full_repo → $target"
+  docker exec "$CONTAINER_NAME" bash -lc "
+    set -e
+    rm -rf '$target' 2>/dev/null || true
+    cd /workspace/oss
+    gh repo clone '$full_repo' 2>&1 | tail -2
+    cd '$target'
+    [[ -f package.json ]]   && npm install 2>&1 | tail -1
+    [[ -f Cargo.toml ]]     && cargo fetch 2>&1 | tail -1 || true
+    [[ -f requirements.txt ]] && pip3 install -q -r requirements.txt 2>&1 | tail -1 || true
+    npm test
+  "
+}
+
 # --- Subcommand: nuke -----------------------------------------------------
 # Tear EVERYTHING down. For reproducibility testing — clears all persistent
 # state so the next `bin/sandbox.sh up` is a true fresh-machine simulation.
@@ -336,6 +374,9 @@ sandbox — host-side wrapper around an ephemeral identity-isolated dev containe
   bin/sandbox.sh doctor           check host preconditions + show detected layout
   bin/sandbox.sh verify-llm-auth  in-container check: do the piped LLM creds
                                   actually authenticate?
+  bin/sandbox.sh test-repo <name> clone cheshirecode/<name> (or <owner>/<repo>),
+                                  install, run \`npm test\`. Exit code = test
+                                  result. n=3-evidenced dogfood shortcut.
   bin/sandbox.sh nuke [--all]     remove container + image + named volumes
                                   (use --all to also remove .sandbox-home and
                                   learnings-inbox runtime dirs)
@@ -350,6 +391,7 @@ case "$cmd" in
   rebuild)         cmd_rebuild ;;
   doctor)          cmd_doctor ;;
   verify-llm-auth) cmd_verify_llm_auth ;;
+  test-repo)       cmd_test_repo "$@" ;;
   nuke)            cmd_nuke "$@" ;;
   ""|-h|--help|help) usage ;;
   *) echo "sandbox: unknown subcommand '$cmd'" >&2; usage; exit 2 ;;
