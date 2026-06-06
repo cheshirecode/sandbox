@@ -161,6 +161,25 @@ that shipped despite ~18 structural tests passing.
 11. **shellcheck SC1087 `$var[ ,]`** — bash sees array-index ambiguity.
     Brace: `${var}[ ,]`. CI catches it; local pre-commit must too.
 
+13. **Host-shell identity leak at `up` time** — `bin/sandbox.sh up` calls
+    `gh auth token` on host, which returns whichever account the user is
+    currently logged into. If the shell that ran `up` didn't direnv-load
+    `~/Documents/oss/.envrc`, the host's default gh login (often the work
+    account) gets piped into the container. Entrypoint then derives git
+    identity from that token via `gh api user`, baking the wrong identity
+    into the running container — re-creating hazard #12 (work-identity
+    leak) from a different vector. Observed: 4+ hours running as
+    `ideogram-fredtran` instead of `cheshirecode` after a token rotation,
+    until a `docker exec ... git config user.email` surfaced it.
+    **Fix in place** (`bin/sandbox.sh` cmd_up, post-`require_token`):
+    if `$WORKLOG_LDAP` (or `$SANDBOX_LOGIN_EXPECTED`) is set, the script
+    probes `gh api user .login` with the about-to-be-piped token and
+    refuses to start (exit 78) if it doesn't match. Bypass with `unset
+    WORKLOG_LDAP` for intentional cross-identity work. Test #4k (TBD).
+    **Operational rule:** always invoke as `source ~/Documents/oss/.envrc
+    && bin/sandbox.sh up` (or `direnv exec ~/Documents/oss …`). The
+    check is the safety net; direnv is the primary mechanism.
+
 12. **Sub-agent host-leak when committing** — a sub-agent told to "commit
     + push" can run `git commit` **on the host** (picking up the user's
     work git config) instead of via `docker exec` into the sandbox.

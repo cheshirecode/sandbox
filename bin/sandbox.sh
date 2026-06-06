@@ -162,6 +162,40 @@ cmd_up() {
   local host_token
   host_token="$(require_token)"
 
+  # Hazard #13: identity-mismatch precondition. If the caller exported
+  # $WORKLOG_LDAP (or $SANDBOX_LOGIN) declaring "this sandbox must run as
+  # account X", verify the token we're about to pipe ACTUALLY resolves to
+  # X. Without this check, running `bin/sandbox.sh up` from a shell that
+  # didn't direnv-load ~/Documents/oss/.envrc picks up the host's default
+  # gh login (likely a work account) and bakes the wrong identity into the
+  # container — repeating hazard #12 (work-identity leak) from inside.
+  local expected_login=""
+  if [[ -n "${WORKLOG_LDAP:-}" ]]; then
+    expected_login="$WORKLOG_LDAP"
+  elif [[ -n "${SANDBOX_LOGIN_EXPECTED:-}" ]]; then
+    expected_login="$SANDBOX_LOGIN_EXPECTED"
+  fi
+  if [[ -n "$expected_login" ]]; then
+    local actual_login
+    actual_login="$(GH_TOKEN="$host_token" gh api user --jq .login 2>/dev/null || echo '<probe-failed>')"
+    if [[ "$actual_login" != "$expected_login" ]]; then
+      echo "sandbox: REFUSING TO START — identity mismatch" >&2
+      echo "  expected (env): $expected_login" >&2
+      echo "  host gh token resolves to: $actual_login" >&2
+      echo "" >&2
+      echo "  This means \`gh auth token\` on host returned a token for a different" >&2
+      echo "  account than the one this sandbox is scoped to. Common cause: the" >&2
+      echo "  shell that ran \`bin/sandbox.sh up\` didn't load ~/Documents/oss/.envrc," >&2
+      echo "  so direnv didn't swap GH_TOKEN to the cheshirecode-scoped value." >&2
+      echo "" >&2
+      echo "  Fix:    source ~/Documents/oss/.envrc && bin/sandbox.sh up [--no-attach]" >&2
+      echo "          (or: direnv exec ~/Documents/oss bin/sandbox.sh up ...)" >&2
+      echo "  Bypass: unset WORKLOG_LDAP (only if you genuinely want a different identity)" >&2
+      unset host_token
+      exit 78  # EX_CONFIG
+    fi
+  fi
+
   # Build env-var allowlist args inline (bash-3.2-safe; mapfile is bash 4+).
   local env_args=()
   for var in "${SANDBOX_ENV_ALLOWLIST[@]}"; do
