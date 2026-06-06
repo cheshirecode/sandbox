@@ -44,6 +44,17 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && apt-get install -y --no-install-recommends gh ripgrep jq direnv \
     && rm -rf /var/lib/apt/lists/*
 
+# Node 20 LTS via NodeSource — evidence-based from n=3 dogfood: every
+# repo (Next.js, Express, tape utility) needed Node + npm. Ubuntu apt
+# ships Node 18 which can't run vitest 4 / vite 8 (`node:util.styleText`
+# is Node 22+). NodeSource Node 20 is the floor for modern JS repos.
+# ~80MB added to image; eliminates `sudo apt install nodejs npm` from
+# every first-run.
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - >/dev/null \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/* \
+    && node --version && npm --version
+
 # --- User layer -------------------------------------------------------------
 # UID arg matters on Linux (real ownership on bind mounts); on macOS/OrbStack
 # VirtioFS fakes ownership so it's cosmetic. Default 1000 is the Ubuntu norm.
