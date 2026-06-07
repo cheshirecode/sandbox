@@ -102,12 +102,11 @@ if [[ -s "$OPENAI_TOKEN_FILE" ]]; then
 fi
 
 # --- 2d. gh OAuth scope advisory (warn-only, never refuse) ----------------
-# Council survivor item 14: surfaced by the worklog-install dogfood where
-# `gh auth login --with-token` rejected on missing `read:org`. Mirrors the
-# existing token-expiry warn pattern: parses X-OAuth-Scopes from `gh api -i
-# user`, compares against a recommended scope set, warns on misses. NEVER
-# refuses — many flows work with narrower scopes; the user just needs to
-# know which gh operations may fail.
+# Parses X-OAuth-Scopes from `gh api -i user`, compares against the
+# recommended set, warns on misses. Mirrors the token-expiry warn pattern.
+# Never refuses — narrower scopes still work for read-mostly flows; the
+# user just needs to know which gh operations may fail (e.g. `gh auth
+# login --with-token` requires `read:org`).
 if gh auth status >/dev/null 2>&1; then
   RECOMMENDED_SCOPES="repo read:org workflow"
   GRANTED=$(gh api -i user 2>/dev/null \

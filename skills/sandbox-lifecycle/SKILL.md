@@ -114,10 +114,12 @@ Profile configs live at `~/.config/sandbox/profiles/<name>.env`.
   and pin to `pnpm@10` (pnpm@latest requires Node ≥22). Persists across
   rebuilds because `~/.local` lives in the toolchains volume… *if* you
   installed it there.
-- **Work identity:** entrypoint refuses to start with `$GITHUB_TOKEN`,
-  `$GH_ENTERPRISE_TOKEN`, or any var matching `$SANDBOX_REFUSE_PATTERNS`.
-  This is by design — do not work around it. Use the host shell for
-  work-identity tasks.
+- **Identity mismatch refusal:** `up --profile=<name>` from a shell that
+  hasn't loaded `~/Documents/oss/.envrc` (so `gh auth token` returns the
+  wrong account) exits 78 with `REFUSING TO START — identity mismatch`.
+  Fix: `source ~/Documents/oss/.envrc && bin/sandbox.sh up …` (or
+  `direnv exec ~/Documents/oss …`). Do not bypass — this is the guard
+  that keeps work tokens out of personal sandboxes.
 - **Detached volumes don't migrate:** `orbctl docker migrate` skips
   volumes not attached to a running container. To move named volumes
   between Docker contexts, `tar`-stream them manually

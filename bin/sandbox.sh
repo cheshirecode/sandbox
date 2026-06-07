@@ -3,21 +3,11 @@
 # Auto-detects your GitHub login (via `gh api user`) and ties named volumes,
 # image tag, and container name to it — so this script works as-is on any fork.
 #
-# Subcommands:
-#   up         build (if needed) + run + drop into shell
-#   exec       run a command in the running container (or start one)
-#   down       stop the container (autosave fires)
-#   rebuild    force rebuild the image
-#   doctor     check host preconditions (docker, orbstack, .envrc)
+# Subcommands: see `bin/sandbox.sh --help`.
 #
-# Inbox curation: just `ls -lt $SANDBOX_INBOX_DIR/` (the path is printed by
-# `sandbox.sh doctor`). Use your editor + rm. No bespoke `extract` subcommand.
-# Cleanup: `docker image prune` already exists; no bespoke `prune` subcommand.
-#
-# Detects OrbStack vs Docker Desktop and prefers OrbStack when present.
 # Token piping: reads `gh auth token` from the .envrc-loaded host environment
-# and writes it into the container's tmpfs /run/secrets/gh_token via docker
-# cp from a host-side tmp file that's `shred -u`'d immediately after.
+# and writes it into the container's tmpfs /run/secrets/gh_token via
+# `docker exec -i sh -c 'cat > …'`. Never via -e / --build-arg / docker cp.
 
 set -euo pipefail
 
@@ -322,12 +312,10 @@ cmd_down() {
 # --- Subcommand: verify-llm-auth ------------------------------------------
 # Real-token, host-side functional check. Runs INSIDE the live container and
 # asks each LLM CLI whether its piped credential actually authenticates.
-# Closes assumption #2 from DESIGN.md ("the container can use the OAuth token
-# by writing it to ~/.<provider>/<credentials>").
 #
-# Exit non-zero only if ALL detected providers fail. Per-provider non-error
-# but missing is treated as "not exercised, not failed" since the provider
-# may simply not be installed inside the container yet.
+# Exit non-zero only if ALL detected providers fail. Per-provider missing is
+# treated as "not exercised, not failed" — the provider may not be installed
+# inside the container yet.
 cmd_verify_llm_auth() {
   if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
     echo "sandbox: container not running. Run \`bin/sandbox.sh up\` first." >&2
@@ -376,10 +364,10 @@ cmd_verify_llm_auth() {
 }
 
 # --- Subcommand: test-repo ------------------------------------------------
-# n=3-evidenced shortcut: clone a $SANDBOX_LOGIN/* repo + install + run its
-# tests inside the running sandbox. Exit code = exit code of `npm test`.
-# No clever output parsing — modern runners (vitest, jest, tape, mocha,
-# pytest, cargo test) all exit non-zero on failure. Just trust the code.
+# Clone a $SANDBOX_LOGIN/* repo + install + run its tests inside the running
+# sandbox. Exit code = exit code of `npm test`. No output parsing — modern
+# runners (vitest/jest/tape/mocha/pytest/cargo test) all exit non-zero on
+# failure.
 #
 # Usage:
 #   bin/sandbox.sh test-repo <repo-name>          # $SANDBOX_LOGIN/<repo>
@@ -388,8 +376,7 @@ cmd_test_repo() {
   local arg="${1:-}"
   [[ -z "$arg" ]] && { echo "sandbox test-repo: missing <repo-name>" >&2; return 2; }
 
-  # Normalize: if no `/`, prepend the active profile's login (was hardcoded
-  # cheshirecode pre-2026-06; broke for any non-cheshirecode profile).
+  # Normalize: if no `/`, prepend the active profile's login.
   local full_repo
   if [[ "$arg" == */* ]]; then full_repo="$arg"; else full_repo="$SANDBOX_LOGIN/$arg"; fi
   local repo_name="${full_repo##*/}"

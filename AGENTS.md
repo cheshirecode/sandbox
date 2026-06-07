@@ -172,10 +172,14 @@ that shipped despite ~18 structural tests passing.
     `ideogram-fredtran` instead of `cheshirecode` after a token rotation,
     until a `docker exec ... git config user.email` surfaced it.
     **Fix in place** (`bin/sandbox.sh` cmd_up, post-`require_token`):
-    if `$WORKLOG_LDAP` (or `$SANDBOX_LOGIN_EXPECTED`) is set, the script
+    when `$WORKLOG_LDAP`, `$SANDBOX_LOGIN_EXPECTED`, OR a profile is
+    explicitly selected (`--profile=` / `$SANDBOX_PROFILE`), the script
     probes `gh api user .login` with the about-to-be-piped token and
-    refuses to start (exit 78) if it doesn't match. Bypass with `unset
-    WORKLOG_LDAP` for intentional cross-identity work. Test #4k (TBD).
+    refuses to start (exit 78) if it doesn't match the expected identity.
+    Profile selection treats the profile's declared `SANDBOX_LOGIN` as
+    the expected — auto-detected `SANDBOX_LOGIN` (no profile) is skipped
+    to avoid a tautology. Bypass by unsetting whichever is set, or
+    running without `--profile=`.
     **Operational rule:** always invoke as `source ~/Documents/oss/.envrc
     && bin/sandbox.sh up` (or `direnv exec ~/Documents/oss …`). The
     check is the safety net; direnv is the primary mechanism.
@@ -232,7 +236,7 @@ Use the sandbox for:
 - `README.md` — user-facing quickstart
 - `tests/run.sh` — every named hazard above has a regression test
 - `bin/setup-from-scratch.sh` — reproducibility-loop entry point
-- `bin/sandbox.sh test-repo` — the n=3-evidenced dogfood shortcut
+- `bin/sandbox.sh test-repo` — clone+install+test shortcut for `cheshirecode/*` repos
 
 Council skill (orchestrates voting for any non-trivial proposal):
 `~/.claude/skills/council/SKILL.md` (canonical) or
