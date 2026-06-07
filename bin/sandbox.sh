@@ -200,11 +200,24 @@ cmd_up() {
   # didn't direnv-load ~/Documents/oss/.envrc picks up the host's default
   # gh login (likely a work account) and bakes the wrong identity into the
   # container — repeating hazard #12 (work-identity leak) from inside.
+  # Fallback chain: explicit env override → explicit env override →
+  # implicit profile declaration. The last fallback only kicks in when a
+  # profile was explicitly selected ($SANDBOX_PROFILE_NAME non-empty) —
+  # otherwise SANDBOX_LOGIN was auto-detected from `gh api user` on the
+  # host and using it as the expected creates a tautology that always
+  # passes (defeating the guard). With a profile selected, SANDBOX_LOGIN
+  # is a deliberate declaration ("this profile runs as <login>"), so we
+  # can enforce it automatically without the operator remembering to set
+  # WORKLOG_LDAP. This is what catches the migration-era regression where
+  # `bin/sandbox.sh --profile=cheshirecode up` from a non-direnv shell
+  # silently baked the host's work identity into the container.
   local expected_login=""
   if [[ -n "${WORKLOG_LDAP:-}" ]]; then
     expected_login="$WORKLOG_LDAP"
   elif [[ -n "${SANDBOX_LOGIN_EXPECTED:-}" ]]; then
     expected_login="$SANDBOX_LOGIN_EXPECTED"
+  elif [[ -n "${SANDBOX_PROFILE_NAME:-}" && -n "${SANDBOX_LOGIN:-}" ]]; then
+    expected_login="$SANDBOX_LOGIN"
   fi
   if [[ -n "$expected_login" ]]; then
     local actual_login
@@ -221,7 +234,9 @@ cmd_up() {
       echo "" >&2
       echo "  Fix:    source ~/Documents/oss/.envrc && bin/sandbox.sh up [--no-attach]" >&2
       echo "          (or: direnv exec ~/Documents/oss bin/sandbox.sh up ...)" >&2
-      echo "  Bypass: unset WORKLOG_LDAP (only if you genuinely want a different identity)" >&2
+      echo "  Bypass: unset whichever is set: WORKLOG_LDAP, SANDBOX_LOGIN_EXPECTED," >&2
+      echo "          or run without --profile=/SANDBOX_PROFILE (only if you" >&2
+      echo "          genuinely want a different identity)." >&2
       unset host_token
       exit 78  # EX_CONFIG
     fi
