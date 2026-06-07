@@ -265,6 +265,15 @@ brew install orbstack
 
 `bin/sandbox.sh doctor` prints a tip if it detects Docker Desktop.
 
+**Migration verified (2026-06-07):** sandbox lifecycle works end-to-end on
+OrbStack with no script changes — `up --no-attach`, `exec`, `test-repo`,
+`down`, and `nuke` behave identically. Named volumes (`<login>-toolchains`,
+`-gh`, `-claude`, `-codex`) survive a `tar`-stream copy between Docker
+contexts (`docker --context=desktop-linux run ... tar -cf -` →
+`docker --context=orbstack run ... tar -xf -`); the migrator's built-in
+`orbctl docker migrate` only copies volumes attached to running containers,
+so detached named volumes need this manual step.
+
 ## Testing
 
 ```
