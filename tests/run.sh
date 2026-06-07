@@ -260,8 +260,8 @@ test_functional() {
   fi
 
   # 4j. Entrypoint clears stale .gitconfig.lock without aborting.
-  # Regression for dogfood-found bug: prior killed entrypoint left a lock,
-  # which made every subsequent up exit 255 before exec sleep infinity ran.
+  # Regression: a prior killed entrypoint left a lock that made every
+  # subsequent `up` exit 255 before `exec sleep infinity` ran.
   cleanup_test_container
   # Create a stale lock in the bind-mount target (simulating a prior crash).
   mkdir -p "${SANDBOX_HOME_DIR:?}"
@@ -358,8 +358,8 @@ test_functional() {
   cleanup_test_container
 
   # 9. Secret-shape filter strips AWS/Google/OpenAI/GitHub key shapes.
-  # Council item #7: pragma comments below mark intentional fake-but-shaped
-  # values for secret-scanner tools; these are non-functional ASCII strings.
+  # `pragma: allowlist secret` comments below mark intentional fake-but-
+  # shaped values for secret scanners; these are non-functional ASCII.
   start_test_container
   # pragma: allowlist secret
   docker exec "$TEST_CONTAINER" bash -c '
