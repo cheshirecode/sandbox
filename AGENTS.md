@@ -200,6 +200,26 @@ that shipped despite ~18 structural tests passing.
     --jq '.[].commit.author.email'`) before assuming the sandbox's
     identity isolation held end-to-end.
 
+14. **OrbStack migration silently skips detached named volumes** —
+    `orbctl docker migrate` (Docker Desktop → OrbStack) copies images
+    and containers, plus volumes *currently attached to a running
+    container*. Detached named volumes (`<login>-toolchains`,
+    `<login>-gh`, `<login>-claude`, `<login>-codex` when the sandbox
+    isn't up) are NOT copied, and the migrator doesn't warn. Observed
+    on 2026-06-07: post-migration container started cleanly on OrbStack
+    but the toolchains volume was empty — sandbox state silently reset.
+    **Fix:** stream-copy each named volume between Docker contexts
+    before relying on the migrator's output:
+    ```
+    docker --context=desktop-linux run --rm -v "$vol":/from alpine \
+      tar -C /from -cf - . \
+      | docker --context=orbstack run --rm -i -v "$vol":/to alpine \
+      tar -C /to -xf -
+    ```
+    Verify with `du -sh` on both sides. The migrator itself remains
+    useful for images and running containers — just don't trust it for
+    detached state.
+
 ## Subcommand reference
 
 ```
