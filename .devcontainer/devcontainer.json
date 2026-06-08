@@ -2,10 +2,13 @@
 // Remote Containers. Mirrors mounts.env (the authoritative source for target
 // paths; a CI lint asserts the two stay in sync).
 //
-// REQUIRED env on launch: SANDBOX_WORKSPACE (the host dir to bind as
-// /workspace/oss). devcontainer.json can't auto-derive it from the repo
-// location the way mounts.env can, so the alternate path needs it explicit:
-//     SANDBOX_WORKSPACE=$(dirname "$(pwd)") devcontainer up --workspace-folder .
+// REQUIRED env on launch: SANDBOX_WORKSPACE (host dir → /workspace/oss) and
+// SANDBOX_PROJECTS_DIR (sibling work tree → /workspace/projects, default
+// $(dirname "$SANDBOX_WORKSPACE")/projects). devcontainer.json can't auto-
+// derive these the way mounts.env can, so the alternate path needs them explicit:
+//     SANDBOX_WORKSPACE=$(dirname "$(pwd)") \
+//     SANDBOX_PROJECTS_DIR=$(dirname "$(dirname "$(pwd)")")/projects \
+//     devcontainer up --workspace-folder .
 //
 // Optional env: USER (used as the volume namespace prefix); defaults to the
 // host shell's $USER.
@@ -28,6 +31,7 @@
   },
   "mounts": [
     "type=bind,source=${localEnv:SANDBOX_WORKSPACE},target=/workspace/oss",
+    "type=bind,source=${localEnv:SANDBOX_PROJECTS_DIR},target=/workspace/projects",
     "type=bind,source=${localEnv:SANDBOX_WORKSPACE}/.sandbox-home,target=/workspace/home",
     "type=bind,source=${localEnv:SANDBOX_WORKSPACE}/learnings-inbox,target=/workspace/inbox",
     "type=volume,source=${localEnv:USER}-toolchains,target=/workspace/home/.cache/toolchains",

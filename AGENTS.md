@@ -61,18 +61,20 @@ export WORKLOG_LDAP=cheshirecode
 # 2. Bring the container up (auto-pipes Anthropic + Codex creds from host)
 bin/sandbox.sh up --no-attach
 
-# 3. Workspace-local repos (bind-mounted at /workspace/oss/<name>)
-#    Edit on host; test inside container without cloning:
+# 3. OSS workspace repos (bind-mounted at /workspace/oss/<name>)
+#    Edit on host; test inside container without cloning.
+
+# 3b. Ideogram-internal repos under ~/Documents/projects → /workspace/projects
+#     Edit + commit on host (projects/.envrc); sandbox is verify-only:
 docker exec cheshirecode-sandbox bash -lc '
-  cd /workspace/oss/factory-brief
-  WORKLOG_ROOT=/workspace/oss/_worklog npm run compile:knowledge
+  cd /workspace/projects/factory-brief
+  WORKLOG_ROOT=/workspace/projects/_worklog WORKLOG_LDAP=fredtran npm run compile:knowledge
   npm test
 '
 
 # 4. Remote cheshirecode/* repos (clone fresh inside container):
 bin/sandbox.sh test-repo <repo-name>       # = cheshirecode/<name>
 bin/sandbox.sh test-repo <owner>/<repo>    # explicit owner
-# Dogfood: bin/sandbox.sh test-repo factory-brief → 8 pass (2026-06-08)
 
 # 5. Interactive shell (npm install, commit, push — always inside container):
 bin/sandbox.sh exec bash -l
@@ -86,6 +88,22 @@ bin/sandbox.sh nuke --all && bin/setup-from-scratch.sh
 
 For multi-repo dogfooding (proven up to n=5+ repos in parallel), use sub-agents
 partitioned by repo name. **But see Hazards § sub-agent-host-leak first.**
+
+## Multi-session use + git sync
+
+This repo is shared across Cursor / Claude / Codex sessions. That is **safe**
+when these rules hold:
+
+| Topic | Safe pattern |
+|-------|----------------|
+| **Git history** | Merge commits on `main` are fine. Unlike `_worklog`, sandbox has no linear-history invariant. Sync with `git pull` (merge OK); avoid force-push unless coordinated maintenance. |
+| **Container** | `bin/sandbox.sh up --no-attach` reuses a running `<login>-sandbox` container — multiple sessions can `docker exec` into the same instance. |
+| **Identity** | Every session runs `source ~/Documents/oss/.envrc` (or direnv) **before** `up`. See hazard #13. |
+| **Commits** | Mutating `cheshirecode/*` repos inside the sandbox via `docker exec … git commit` — never host-shell `git commit`. See hazard #12. |
+| **Teardown** | Only one session should run `nuke` / `rebuild` at a time; scoped to current `$SANDBOX_LOGIN`. |
+| **Workspace mounts** | OSS repos under `$SANDBOX_WORKSPACE` → `/workspace/oss`; work repos under `$SANDBOX_PROJECTS_DIR` → `/workspace/projects`. Each is a separate git repo — pull on host; sandbox-repo merges do not update them. |
+
+CI checks out `HEAD` only — merge depth on `main` does not affect `./tests/run.sh`.
 
 ## Conventions a coding agent must follow in this repo
 

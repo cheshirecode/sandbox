@@ -137,9 +137,22 @@ auto-namespace to your login on first `up`.
 
 ## Workspace-local repos
 
-Repos under the workspace bind mount (e.g. `~/Documents/oss/factory-brief`) are
-visible inside the container at `/workspace/oss/factory-brief`. Edit on the host;
-run `npm test` via `docker exec cheshirecode-sandbox bash -lc 'cd /workspace/oss/factory-brief && npm test'`.
+Two bind mounts (see `mounts.env`):
+
+| Host | Container | Use |
+|------|-----------|-----|
+| `$SANDBOX_WORKSPACE` (default: parent of this repo, e.g. `~/Documents/oss`) | `/workspace/oss` | Personal-OSS repos (`_worklog`, `dotfiles`, …) |
+| `$SANDBOX_PROJECTS_DIR` (default: sibling `~/Documents/projects`) | `/workspace/projects` | Ideogram-internal repos (`factory-brief`, `ui`, …) |
+
+Edit and commit on the host with the matching tree identity (`oss/.envrc` vs
+`projects/.envrc`). Use the sandbox only to verify (e.g. `npm test`):
+
+```bash
+docker exec cheshirecode-sandbox bash -lc 'cd /workspace/projects/factory-brief && npm test'
+```
+
+Recreate the container after mount changes: `bin/sandbox.sh down && bin/sandbox.sh up --no-attach`.
+
 Use `source ~/Documents/oss/.envrc` before `up` so the piped gh token is
 `cheshirecode`, not a work account.
 
