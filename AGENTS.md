@@ -239,6 +239,9 @@ that shipped despite ~18 structural tests passing.
 bin/sandbox.sh up                build (if needed) + run + drop into shell
 bin/sandbox.sh up --no-attach    same but return after entrypoint runs
 bin/sandbox.sh exec <cmd>        run cmd in the running container
+bin/sandbox.sh run-headless <cmd> [args...]
+                                 non-TTY run; writes stdout/stderr/exit/meta
+                                 under learnings-inbox/headless-runs/
 bin/sandbox.sh down              stop container; volumes preserved
 bin/sandbox.sh rebuild           force rebuild image
 bin/sandbox.sh doctor            host preflight + show detected layout
@@ -270,6 +273,8 @@ Use the sandbox for:
 - `tests/run.sh` — every named hazard above has a regression test
 - `bin/setup-from-scratch.sh` — reproducibility-loop entry point
 - `bin/sandbox.sh test-repo` — clone+install+test shortcut for `cheshirecode/*` repos
+- `bin/sandbox.sh run-headless` — daemon-safe non-TTY command runner with
+  host-inspectable artifacts under `learnings-inbox/headless-runs/`
 
 Council skill (orchestrates voting for any non-trivial proposal):
 `~/.claude/skills/council/SKILL.md` (canonical) or
