@@ -148,6 +148,8 @@ Use `source ~/Documents/oss/.envrc` before `up` so the piped gh token is
 ```
 bin/sandbox.sh up               build (if needed) + run + drop into shell
 bin/sandbox.sh exec <cmd>       run <cmd> in the running container
+bin/sandbox.sh run-headless <cmd> [args...]
+                                non-TTY run with stdout/stderr/exit/meta artifacts
 bin/sandbox.sh test-repo <name> clone + install + npm test (cheshirecode/*)
 bin/sandbox.sh down             stop the container (autosave fires)
 bin/sandbox.sh rebuild          force rebuild the image
@@ -156,6 +158,19 @@ bin/sandbox.sh verify-llm-auth  in-container check: piped LLM creds work?
 bin/sandbox.sh nuke [--all]     remove container + image + named volumes
                                 (--all also removes runtime dirs)
 ```
+
+For daemon or agent callers, prefer `run-headless` over `exec`:
+
+```bash
+bin/sandbox.sh up --no-attach
+bin/sandbox.sh run-headless bash -lc 'pwd; git status --short'
+```
+
+Each invocation writes a host-inspectable artifact directory under
+`learnings-inbox/headless-runs/<run-id>/` containing `command.txt`,
+`stdout.log`, `stderr.log`, `exit_code`, and `meta.env`. This is the
+intended wrapper for worklog-manager dry-runs: inspect full artifacts locally,
+then post only redacted summaries back to GitHub Issues.
 
 Inbox curation: just `ls -lt $SANDBOX_INBOX_DIR/`. Files are files.
 

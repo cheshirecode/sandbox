@@ -169,6 +169,10 @@ cmd_up() {
 
   # Container running already? Just exec into it.
   if docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
+    if [[ $no_attach -eq 1 ]]; then
+      echo "sandbox: container already running, ready for \`bin/sandbox.sh exec\` or \`bin/sandbox.sh run-headless\` (no shell attached)"
+      return
+    fi
     echo "sandbox: container running — execing into it"
     docker exec -it "$CONTAINER_NAME" bash -l
     return
@@ -286,7 +290,7 @@ cmd_up() {
     docker exec -d "$CONTAINER_NAME" bash -lc '/usr/local/bin/sandbox-entrypoint sleep infinity > /tmp/entrypoint.out 2>&1'
     # Wait briefly for entrypoint to run its setup phase (snapshots, git config).
     sleep 3
-    echo "sandbox: container running, ready for \`bin/sandbox.sh exec\` (no shell attached)"
+    echo "sandbox: container running, ready for \`bin/sandbox.sh exec\` or \`bin/sandbox.sh run-headless\` (no shell attached)"
     return
   fi
 
@@ -297,6 +301,56 @@ cmd_up() {
 # --- Subcommand: exec ------------------------------------------------------
 cmd_exec() {
   docker exec -it "$CONTAINER_NAME" "$@"
+}
+
+# --- Subcommand: run-headless ---------------------------------------------
+# Non-interactive command runner for daemon/agent callers. Unlike `exec`,
+# this never allocates a TTY and always leaves inspectable host-side artifacts.
+cmd_run_headless() {
+  if [[ $# -eq 0 ]]; then
+    echo "usage: bin/sandbox.sh run-headless <cmd> [args...]" >&2
+    return 2
+  fi
+  if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
+    echo "sandbox run-headless: container not running. Run \`bin/sandbox.sh up --no-attach\` first." >&2
+    return 2
+  fi
+
+  ensure_runtime_dirs
+
+  local run_id run_dir start_iso end_iso rc
+  run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+  run_dir="$SANDBOX_INBOX_DIR/headless-runs/$run_id"
+  mkdir -p "$run_dir"
+  chmod 0700 "$run_dir" 2>/dev/null || true
+
+  start_iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  printf '%q ' "$@" > "$run_dir/command.txt"
+  printf '\n' >> "$run_dir/command.txt"
+  {
+    printf 'run_id=%s\n' "$run_id"
+    printf 'start=%s\n' "$start_iso"
+    printf 'profile=%s\n' "${SANDBOX_PROFILE_NAME:-}"
+    printf 'login=%s\n' "$SANDBOX_LOGIN"
+    printf 'container=%s\n' "$CONTAINER_NAME"
+    printf 'workspace=%s\n' "$SANDBOX_WORKSPACE"
+    printf 'sandbox_home=%s\n' "$SANDBOX_HOME_DIR"
+  } > "$run_dir/meta.env"
+
+  set +e
+  docker exec "$CONTAINER_NAME" "$@" >"$run_dir/stdout.log" 2>"$run_dir/stderr.log"
+  rc=$?
+  set -e
+
+  end_iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  printf '%s\n' "$rc" > "$run_dir/exit_code"
+  {
+    printf 'end=%s\n' "$end_iso"
+    printf 'exit_code=%s\n' "$rc"
+  } >> "$run_dir/meta.env"
+
+  echo "sandbox run-headless: exit=$rc artifacts=$run_dir"
+  return "$rc"
 }
 
 # --- Subcommand: down ------------------------------------------------------
@@ -696,6 +750,7 @@ Active profile (--profile / \$SANDBOX_PROFILE / mounts.env auto-detect):
 Lifecycle (per-profile; add --profile=<name> to switch):
   bin/sandbox.sh up [--profile=<name>]      build + run + shell
   bin/sandbox.sh exec <cmd> [--profile=...]  run cmd in running container
+  bin/sandbox.sh run-headless <cmd> [...]    non-TTY run with logs/artifacts
   bin/sandbox.sh down [--profile=...]        stop container
   bin/sandbox.sh rebuild [--profile=...]     force rebuild
   bin/sandbox.sh test-repo <name>            clone+install+test in container
@@ -729,6 +784,7 @@ cmd="${1:-}"; shift || true
 case "$cmd" in
   up)              cmd_up "$@" ;;
   exec)            cmd_exec "$@" ;;
+  run-headless)    cmd_run_headless "$@" ;;
   down)            cmd_down ;;
   list)            cmd_list ;;
   inspect)         cmd_inspect "$@" ;;
