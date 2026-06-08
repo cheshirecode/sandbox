@@ -135,11 +135,20 @@ Inside the container, `gh api user` against the piped token confirms the
 same login — both sides agree. If you forked this repo, the volumes
 auto-namespace to your login on first `up`.
 
+## Workspace-local repos
+
+Repos under the workspace bind mount (e.g. `~/Documents/oss/factory-brief`) are
+visible inside the container at `/workspace/oss/factory-brief`. Edit on the host;
+run `npm test` via `docker exec cheshirecode-sandbox bash -lc 'cd /workspace/oss/factory-brief && npm test'`.
+Use `source ~/Documents/oss/.envrc` before `up` so the piped gh token is
+`cheshirecode`, not a work account.
+
 ## Subcommands
 
 ```
 bin/sandbox.sh up               build (if needed) + run + drop into shell
 bin/sandbox.sh exec <cmd>       run <cmd> in the running container
+bin/sandbox.sh test-repo <name> clone + install + npm test (cheshirecode/*)
 bin/sandbox.sh down             stop the container (autosave fires)
 bin/sandbox.sh rebuild          force rebuild the image
 bin/sandbox.sh doctor           check host preconditions + show layout

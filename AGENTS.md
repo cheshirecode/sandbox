@@ -54,17 +54,30 @@ repos, the canonical flow is:
 # 0. Cd into this repo
 cd ~/Documents/oss/sandbox    # or wherever the user clones it
 
-# 1. Bring the container up (auto-pipes Anthropic + Codex creds from host)
+# 1. Load personal-OSS gh identity BEFORE up (hazard #13 — host leak)
+source ~/Documents/oss/.envrc
+export WORKLOG_LDAP=cheshirecode
+
+# 2. Bring the container up (auto-pipes Anthropic + Codex creds from host)
 bin/sandbox.sh up --no-attach
 
-# 2. Run any cheshirecode/* repo's tests in one command
+# 3. Workspace-local repos (bind-mounted at /workspace/oss/<name>)
+#    Edit on host; test inside container without cloning:
+docker exec cheshirecode-sandbox bash -lc '
+  cd /workspace/oss/factory-brief
+  WORKLOG_ROOT=/workspace/oss/_worklog npm run compile:knowledge
+  npm test
+'
+
+# 4. Remote cheshirecode/* repos (clone fresh inside container):
 bin/sandbox.sh test-repo <repo-name>       # = cheshirecode/<name>
 bin/sandbox.sh test-repo <owner>/<repo>    # explicit owner
+# Dogfood: bin/sandbox.sh test-repo factory-brief → 8 pass (2026-06-08)
 
-# 3. For interactive shell work (npm install, edit, commit, push):
+# 5. Interactive shell (npm install, commit, push — always inside container):
 bin/sandbox.sh exec bash -l
 
-# 4. When done
+# 6. When done
 bin/sandbox.sh down                        # stops + removes container; volumes persist
 
 # Reproducibility proof (also runs in CI):
