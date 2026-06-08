@@ -59,6 +59,12 @@ bin/sandbox.sh test-repo <owner>/<repo>     # explicit owner
 
 ## Teardown
 
+**Agent default:** if you brought the sandbox up for a one-off verify
+(`docker exec … npm test`, `npm run verify`, `test-repo`), run `down`
+before you end the turn — even when verify passed. Named volumes keep
+toolchains warm; stopping the container frees Docker/OrbStack resources.
+Only leave it running when you know another session is still using it.
+
 Two flavors, depending on whether you want to keep cached toolchains:
 
 ```bash

@@ -79,8 +79,9 @@ bin/sandbox.sh test-repo <owner>/<repo>    # explicit owner
 # 5. Interactive shell (npm install, commit, push — always inside container):
 bin/sandbox.sh exec bash -l
 
-# 6. When done
+# 6. When done — always tear down (borrow-only verify)
 bin/sandbox.sh down                        # stops + removes container; volumes persist
+# Agents: run `down` before ending the session if no other session needs the container.
 
 # Reproducibility proof (also runs in CI):
 bin/sandbox.sh nuke --all && bin/setup-from-scratch.sh
@@ -98,9 +99,10 @@ when these rules hold:
 |-------|----------------|
 | **Git history** | Merge commits on `main` are fine. Unlike `_worklog`, sandbox has no linear-history invariant. Sync with `git pull` (merge OK); avoid force-push unless coordinated maintenance. |
 | **Container** | `bin/sandbox.sh up --no-attach` reuses a running `<login>-sandbox` container — multiple sessions can `docker exec` into the same instance. |
+| **Cleanup** | **Borrow-only verify** (e.g. `factory-brief` `npm run verify`): run `bin/sandbox.sh down` when finished — do not leave `<login>-sandbox` running idle. Long-lived work inside the container is the exception; coordinate before `down` if another session may still `docker exec`. |
 | **Identity** | Every session runs `source ~/Documents/oss/.envrc` (or direnv) **before** `up`. See hazard #13. |
 | **Commits** | Mutating `cheshirecode/*` repos inside the sandbox via `docker exec … git commit` — never host-shell `git commit`. See hazard #12. |
-| **Teardown** | Only one session should run `nuke` / `rebuild` at a time; scoped to current `$SANDBOX_LOGIN`. |
+| **Teardown** | Only one session should run `nuke` / `rebuild` at a time; scoped to current `$SANDBOX_LOGIN`. `down` is per-session hygiene; `nuke` is full reset. |
 | **Workspace mounts** | OSS repos under `$SANDBOX_WORKSPACE` → `/workspace/oss`; work repos under `$SANDBOX_PROJECTS_DIR` → `/workspace/projects`. Each is a separate git repo — pull on host; sandbox-repo merges do not update them. |
 
 CI checks out `HEAD` only — merge depth on `main` does not affect `./tests/run.sh`.
