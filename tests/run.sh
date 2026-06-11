@@ -116,13 +116,16 @@ run_entry() {
 start_test_container() {
   cleanup_test_container
   # tmpfs mount only materializes at `docker start`, not at `docker create`.
-  # So: create → start → exec-to-plant-token → exec-entrypoint. The previous
-  # ordering (create → cp → start) worked on macOS Docker Desktop but failed
-  # in CI's Docker because /run/secrets didn't exist in the container yet.
+  # So: create → start → exec-to-plant-token while entrypoint waits briefly.
+  # The previous ordering (create → cp → start) worked on macOS Docker
+  # Desktop but failed in CI's Docker because /run/secrets didn't exist yet.
+  mkdir -p "$SANDBOX_HOME_DIR/.sandbox"
+  rm -f "$SANDBOX_HOME_DIR/.sandbox/entrypoint-ready"
 
   docker create \
     --name "$TEST_CONTAINER" \
     --mount "type=tmpfs,target=/run/secrets" \
+    -e "SANDBOX_WAIT_FOR_SECRETS=1" \
     "$@" \
     "$TEST_IMAGE" \
     sleep infinity >/dev/null
@@ -149,9 +152,14 @@ start_test_container() {
     'cat > /run/secrets/openai_token && chmod 0400 /run/secrets/openai_token' \
     <<<'{"OPENAI_API_KEY":"sk-fake-not-a-real-credential","auth_mode":"oauth","tokens":{"access_token":"fake","refresh_token":"fake"}}'
 
-  # Run the entrypoint in the background; capture output to /tmp inside.
-  docker exec -d "$TEST_CONTAINER" bash -c '/usr/local/bin/sandbox-entrypoint sleep 60 > /tmp/entrypoint.out 2>&1'
-  sleep 3  # give entrypoint time to run snapshots, git config, etc.
+  # Entrypoint is PID1 and waits briefly for the tmpfs token before setup.
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    if docker exec "$TEST_CONTAINER" test -f /workspace/home/.sandbox/entrypoint-ready >/dev/null 2>&1; then
+      return
+    fi
+    sleep 0.25
+  done
+  fail "entrypoint did not become ready"
 }
 
 test_functional() {
@@ -269,8 +277,9 @@ test_functional() {
   docker run -d --name "$TEST_CONTAINER" \
     --mount "type=tmpfs,target=/run/secrets" \
     --mount "type=bind,source=$SANDBOX_HOME_DIR,target=/workspace/home" \
+    --entrypoint /usr/bin/sleep \
     --user dev \
-    "$TEST_IMAGE" sleep 60 >/dev/null
+    "$TEST_IMAGE" 60 >/dev/null
   if docker exec "$TEST_CONTAINER" /usr/local/bin/sandbox-entrypoint true >/dev/null 2>&1; then
     ok "entrypoint completes despite stale .gitconfig.lock (cleared idempotently)"
   else
@@ -289,7 +298,7 @@ test_functional() {
     --mount "type=volume,source=test-claude-vol,target=/workspace/home/.claude" \
     --mount "type=volume,source=test-codex-vol,target=/workspace/home/.codex" \
     --user dev \
-    "$TEST_IMAGE" sleep 60 >/dev/null
+    "$TEST_IMAGE" 60 >/dev/null
   if docker exec "$TEST_CONTAINER" sh -c \
       'touch /workspace/home/.claude/.write-probe && touch /workspace/home/.codex/.write-probe'; then
     ok "named-volume mount points writable by dev user"
@@ -305,7 +314,8 @@ test_functional() {
   cleanup_test_container
   docker run -d --name "$TEST_CONTAINER" \
     --mount "type=tmpfs,target=/run/secrets" \
-    "$TEST_IMAGE" sleep 60 >/dev/null
+    --entrypoint /usr/bin/sleep \
+    "$TEST_IMAGE" 60 >/dev/null
   # Run entrypoint WITHOUT planting any tokens
   if docker exec "$TEST_CONTAINER" /usr/local/bin/sandbox-entrypoint true >/dev/null 2>&1; then
     ok "entrypoint completes cleanly with zero LLM tokens piped"
@@ -389,20 +399,7 @@ test_functional() {
   cleanup_test_container
 
   # 8. GIT_AUTHOR_NAME override wins.
-  # Same create→start→exec-stdin pattern as start_test_container (tmpfs
-  # at /run/secrets only materializes at docker start, not docker create).
-  cleanup_test_container
-  docker create \
-    --name "$TEST_CONTAINER" \
-    --mount "type=tmpfs,target=/run/secrets" \
-    -e "GIT_AUTHOR_NAME=override-name" \
-    "$TEST_IMAGE" sleep 60 >/dev/null
-  docker start "$TEST_CONTAINER" >/dev/null
-  docker exec -i "$TEST_CONTAINER" sh -c \
-    'cat > /run/secrets/gh_token && chmod 0400 /run/secrets/gh_token' \
-    <<<'fake-token-for-test-only-not-a-real-credential'
-  docker exec -d "$TEST_CONTAINER" /usr/local/bin/sandbox-entrypoint sleep 60
-  sleep 2
+  start_test_container -e "GIT_AUTHOR_NAME=override-name"
   name=$(docker exec "$TEST_CONTAINER" git config --global user.name 2>/dev/null || true)
   if [[ "$name" == "override-name" ]]; then
     ok "GIT_AUTHOR_NAME env override wins"
