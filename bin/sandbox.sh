@@ -51,6 +51,24 @@ ensure_runtime_dirs() {
   mkdir -p "$SANDBOX_HOME_DIR" "$SANDBOX_INBOX_DIR"
 }
 
+wait_for_entrypoint_ready() {
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 \
+           21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40; do
+    if docker exec "$CONTAINER_NAME" test -f /workspace/home/.sandbox/entrypoint-ready >/dev/null 2>&1; then
+      return 0
+    fi
+    if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
+      echo "sandbox: entrypoint exited before ready" >&2
+      docker logs "$CONTAINER_NAME" >&2 || true
+      return 1
+    fi
+    sleep 0.25
+  done
+  echo "sandbox: timed out waiting for entrypoint readiness" >&2
+  docker logs "$CONTAINER_NAME" >&2 || true
+  return 1
+}
+
 detect_docker_host() {
   if command -v orb >/dev/null 2>&1; then
     echo "orbstack"
@@ -160,6 +178,8 @@ cmd_up() {
   done
 
   ensure_runtime_dirs
+  mkdir -p "$SANDBOX_HOME_DIR/.sandbox"
+  rm -f "$SANDBOX_HOME_DIR/.sandbox/entrypoint-ready"
 
   # Image exists?
   if ! docker image inspect "$IMAGE_NAME:$IMAGE_TAG" >/dev/null 2>&1; then
@@ -251,6 +271,7 @@ cmd_up() {
     --name "$CONTAINER_NAME" \
     ${SANDBOX_MOUNTS[@]} \
     ${SANDBOX_RUNFLAGS[@]} \
+    --env SANDBOX_WAIT_FOR_SECRETS=1 \
     ${env_args[@]+"${env_args[@]}"} \
     "$IMAGE_NAME:$IMAGE_TAG" \
     sleep infinity >/dev/null
@@ -284,18 +305,13 @@ cmd_up() {
   fi
 
   if [[ $no_attach -eq 1 ]]; then
-    # Run entrypoint detached so the credentials are installed + git config
-    # set + autosave started, then return — leaving the container alive
-    # (sleep infinity) for `bin/sandbox.sh exec` to attach to later.
-    docker exec -d "$CONTAINER_NAME" bash -lc '/usr/local/bin/sandbox-entrypoint sleep infinity > /tmp/entrypoint.out 2>&1'
-    # Wait briefly for entrypoint to run its setup phase (snapshots, git config).
-    sleep 3
+    wait_for_entrypoint_ready
     echo "sandbox: container running, ready for \`bin/sandbox.sh exec\` or \`bin/sandbox.sh run-headless\` (no shell attached)"
     return
   fi
 
-  # Replace the sleep with the real entrypoint, attached.
-  docker exec -it "$CONTAINER_NAME" /usr/local/bin/sandbox-entrypoint bash -l
+  wait_for_entrypoint_ready
+  docker exec -it "$CONTAINER_NAME" bash -l
 }
 
 # --- Subcommand: exec ------------------------------------------------------

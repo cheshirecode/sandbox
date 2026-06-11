@@ -13,6 +13,10 @@
 
 set -euo pipefail
 
+READY_FILE="$HOME/.sandbox/entrypoint-ready"
+mkdir -p "$(dirname "$READY_FILE")"
+rm -f "$READY_FILE"
+
 # --- 1. Refuse on leak-prone env -------------------------------------------
 # Always refuse the GitHub-canonical work-identity env vars.
 for var in GITHUB_TOKEN GH_ENTERPRISE_TOKEN; do
@@ -45,6 +49,13 @@ fi
 # doesn't require `read:org`) to fetch the login, then write hosts.yml in the
 # format gh itself produces.
 TOKEN_FILE="/run/secrets/gh_token"
+if [[ "${SANDBOX_WAIT_FOR_SECRETS:-}" == "1" ]]; then
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    [[ -s "$TOKEN_FILE" ]] && break
+    sleep 0.25
+  done
+fi
+
 if [[ -s "$TOKEN_FILE" ]]; then
   GH_TOKEN_VAL="$(cat "$TOKEN_FILE")"
   # Probe the token's actual GitHub login (works on minimal-scope tokens).
@@ -202,4 +213,5 @@ final_autosave() {
 trap final_autosave TERM INT EXIT
 
 # Drop into the user's shell (or whatever CMD specified).
+date -u +%Y-%m-%dT%H:%M:%SZ > "$READY_FILE"
 exec "$@"
