@@ -187,9 +187,13 @@ that shipped despite ~18 structural tests passing.
    `dev`-owned BEFORE the volume initializes from the image dir.
    Otherwise the empty volume materializes root-owned. Test #4i.
 
-10. **Node 18 in apt vs Node 22+ in modern vitest** — `apt install nodejs`
+10. **Node majors drift faster than the base image** — `apt install nodejs`
     on Ubuntu 24.04 gives Node 18; vitest 4 needs Node 22+ APIs
-    (`node:util.styleText`). Bake NodeSource Node 20 LTS into image.
+    (`node:util.styleText`). The image bakes NodeSource Node 20 by default
+    as the conservative floor, and `SANDBOX_NODE_MAJOR=<22|24>
+    bin/sandbox.sh rebuild` is the supported escape hatch for repos that pin
+    newer engines. Do not silently edit a repo's `engines` or fall back to
+    host Node just because the sandbox image is behind.
 
 11. **shellcheck SC1087 `$var[ ,]`** — bash sees array-index ambiguity.
     Brace: `${var}[ ,]`. CI catches it; local pre-commit must too.
@@ -253,6 +257,15 @@ that shipped despite ~18 structural tests passing.
     useful for images and running containers — just don't trust it for
     detached state.
 
+15. **Work-repo verification is not work-identity execution** — work repos
+    under `$SANDBOX_PROJECTS_DIR` are mounted at `/workspace/projects` for
+    dependency/test verification only. The sandbox keeps the personal-OSS
+    GitHub token and git identity; edit and commit work repos on the host
+    with the parent `projects/.envrc` identity, or use the repo's own Docker
+    setup when that is the canonical runtime. If a work repo requires Node
+    22/24, use `SANDBOX_NODE_MAJOR` or the repo's container; do not pipe the
+    work GitHub token into this sandbox.
+
 ## Subcommand reference
 
 ```
@@ -263,6 +276,7 @@ bin/sandbox.sh run-headless <cmd> [args...]
                                  non-TTY run; writes stdout/stderr/exit/meta
                                  under learnings-inbox/headless-runs/
 bin/sandbox.sh down              stop container; volumes preserved
+bin/sandbox.sh status            alias for list
 bin/sandbox.sh rebuild           force rebuild image
 bin/sandbox.sh doctor            host preflight + show detected layout
 bin/sandbox.sh verify-llm-auth   in-container: do piped LLM creds work?

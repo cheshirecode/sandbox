@@ -242,6 +242,7 @@ cmd_rebuild() {
   docker build \
     --build-arg "HOST_UID=$host_uid" \
     --build-arg "HOST_GID=$host_gid" \
+    --build-arg "NODE_MAJOR=${SANDBOX_NODE_MAJOR:-20}" \
     -t "$IMAGE_NAME:$IMAGE_TAG" \
     "$REPO_ROOT"
 }
@@ -921,6 +922,7 @@ Profile CRUD (config files at \$HOME/.config/sandbox/profiles/<name>.env):
 
 Inspection / management (any profile on this host):
   bin/sandbox.sh list             list all sandbox profiles on host
+  bin/sandbox.sh status           alias for list
   bin/sandbox.sh inspect [<login>] detail one profile (default: active)
   bin/sandbox.sh doctor           host preconditions + active profile layout
 
@@ -944,7 +946,7 @@ case "$cmd" in
   exec)            cmd_exec "$@" ;;
   run-headless)    cmd_run_headless "$@" ;;
   down)            cmd_down ;;
-  list)            cmd_list ;;
+  list|status)     cmd_list ;;
   inspect)         cmd_inspect "$@" ;;
   prune)           cmd_prune "$@" ;;
   profile-new)     cmd_profile_new "$@" ;;
