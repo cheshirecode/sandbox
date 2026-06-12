@@ -163,6 +163,8 @@ bin/sandbox.sh gateway [args...]launch Hermes Agent messaging gateway
 bin/sandbox.sh exec <cmd>       run <cmd> in the running container
 bin/sandbox.sh run-headless <cmd> [args...]
                                 non-TTY run with stdout/stderr/exit/meta artifacts
+bin/sandbox.sh status           list all sandbox profiles on host
+bin/sandbox.sh list             list all sandbox profiles on host
 bin/sandbox.sh test-repo <name> clone + install + npm test (cheshirecode/*)
 bin/sandbox.sh down             stop the container (autosave fires)
 bin/sandbox.sh rebuild          force rebuild the image
@@ -186,6 +188,25 @@ intended wrapper for worklog-manager dry-runs: inspect full artifacts locally,
 then post only redacted summaries back to GitHub Issues.
 
 Inbox curation: just `ls -lt $SANDBOX_INBOX_DIR/`. Files are files.
+
+## Node versions and work repos
+
+The image bakes a default Node major so common JS repo checks do not start
+with `sudo apt-get install nodejs npm`. Default is Node 20 for stability, but
+some repos now pin `engines: node>=22` or `node>=24`. For those, rebuild the
+sandbox image with the repo's required major:
+
+```bash
+SANDBOX_NODE_MAJOR=24 bin/sandbox.sh rebuild
+bin/sandbox.sh up --no-attach
+```
+
+Keep the identity boundary separate from the runtime boundary. Work repos
+under `/workspace/projects` are mounted for verify-only runs with the personal
+OSS sandbox identity still active. Edit and commit those repos on the host
+with the matching parent-tree identity; use the sandbox for dependency/test
+execution, or use the repo's own Docker setup when it is the stronger
+environment contract.
 
 ## Reproducibility (clear + repeat from scratch)
 
@@ -239,8 +260,8 @@ Each instance gets its own container, image tag, and named volumes
 Workspace bind-mount is the worktree's parent dir, so projects don't
 collide.
 
-To see what's running across all instances: `docker ps -a`. To list
-volumes: `docker volume ls`. `bin/sandbox.sh nuke` operates on the
+To see what's running across all instances: `bin/sandbox.sh status` (alias
+for `list`). To list raw Docker volumes: `docker volume ls`. `bin/sandbox.sh nuke` operates on the
 **current** `$SANDBOX_LOGIN` only, so one worktree's nuke doesn't
 touch the others.
 
@@ -253,7 +274,7 @@ principle). After your first `bin/sandbox.sh up`, install them once:
 
 ```bash
 # Inside the sandbox shell:
-sudo apt-get install -y nodejs npm
+node --version && npm --version
 npm install -g @anthropic-ai/claude-code @openai/codex
 claude auth status      # should show your host's logged-in account
 codex login status      # same
