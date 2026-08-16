@@ -48,6 +48,21 @@ import {
   pollUpdateForAggregation,
 } from './bridge_helpers.js';
 
+// Process-level resilience: catch unhandled errors/rejections from Baileys stream resets
+process.on('uncaughtException', (err) => {
+  console.error('[WhatsApp Bridge] Uncaught Exception:', err?.message || err);
+  if (WHATSAPP_DEBUG && err?.stack) {
+    console.error(err.stack);
+  }
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[WhatsApp Bridge] Unhandled Rejection:', reason?.message || reason);
+  if (WHATSAPP_DEBUG && reason?.stack) {
+    console.error(reason.stack);
+  }
+});
+
 // Parse CLI args
 const args = process.argv.slice(2);
 function getArg(name, defaultVal) {
@@ -441,7 +456,22 @@ async function startSocket() {
       if (reason === DisconnectReason.loggedOut) {
         emitPairEvent({ event: 'error', error: 'logged_out', reason });
         if (!PAIR_JSON) {
-          console.log('❌ Logged out. Delete session and restart to re-authenticate.');
+          console.log('❌ Logged out or device unlinked. Clearing stale session files...');
+        }
+        try {
+          if (existsSync(SESSION_DIR)) {
+            for (const f of readdirSync(SESSION_DIR)) {
+              try { unlinkSync(path.join(SESSION_DIR, f)); } catch {}
+            }
+          }
+        } catch {}
+
+        if (PAIR_ONLY) {
+          if (!PAIR_JSON) {
+            console.log('↻ Regenerating fresh QR code for pairing...');
+          }
+          scheduleReconnect(1500);
+          return;
         }
         process.exit(1);
       } else {
