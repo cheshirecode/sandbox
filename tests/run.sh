@@ -152,6 +152,11 @@ start_test_container() {
     'cat > /run/secrets/openai_token && chmod 0400 /run/secrets/openai_token' \
     <<<'{"OPENAI_API_KEY":"sk-fake-not-a-real-credential","auth_mode":"oauth","tokens":{"access_token":"fake","refresh_token":"fake"}}'
 
+  # Plant a fake OpenRouter token for Hermes Agent tests.
+  docker exec -i "$TEST_CONTAINER" sh -c \
+    'cat > /run/secrets/openrouter_token && chmod 0400 /run/secrets/openrouter_token' \
+    <<<'sk-or-v1-fake-openrouter-token-for-test-only'
+
   # Entrypoint is PID1 and waits briefly for the tmpfs token before setup.
   for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
     if docker exec "$TEST_CONTAINER" test -f /workspace/home/.sandbox/entrypoint-ready >/dev/null 2>&1; then
@@ -267,6 +272,25 @@ test_functional() {
     fail "Codex credentials not installed at ~/.codex/auth.json"
   fi
 
+  # 4k. OpenRouter tmpfs token also shredded.
+  if ! docker exec "$TEST_CONTAINER" test -f /run/secrets/openrouter_token; then
+    ok "tmpfs openrouter token wiped after entrypoint read"
+  else
+    fail "tmpfs openrouter token still present (not shredded)"
+  fi
+
+  # 4l. Hermes Agent config/env installed at ~/.hermes/ mode 0600.
+  if docker exec "$TEST_CONTAINER" test -f /workspace/home/.hermes/.env; then
+    mode=$(docker exec "$TEST_CONTAINER" stat -c '%a' /workspace/home/.hermes/.env 2>/dev/null)
+    if [[ "$mode" == "600" ]]; then
+      ok "Hermes credentials installed at ~/.hermes/.env mode 0600"
+    else
+      fail "Hermes credentials mode is '$mode' (expected 600)"
+    fi
+  else
+    fail "Hermes credentials not installed at ~/.hermes/.env"
+  fi
+
   # 4j. Entrypoint clears stale .gitconfig.lock without aborting.
   # Regression: a prior killed entrypoint left a lock that made every
   # subsequent `up` exit 255 before `exec sleep infinity` ran.
@@ -297,16 +321,17 @@ test_functional() {
   docker run -d --name "$TEST_CONTAINER" \
     --mount "type=volume,source=test-claude-vol,target=/workspace/home/.claude" \
     --mount "type=volume,source=test-codex-vol,target=/workspace/home/.codex" \
+    --mount "type=volume,source=test-hermes-vol,target=/workspace/home/.hermes" \
     --user dev \
     "$TEST_IMAGE" 60 >/dev/null
   if docker exec "$TEST_CONTAINER" sh -c \
-      'touch /workspace/home/.claude/.write-probe && touch /workspace/home/.codex/.write-probe'; then
+      'touch /workspace/home/.claude/.write-probe && touch /workspace/home/.codex/.write-probe && touch /workspace/home/.hermes/.write-probe'; then
     ok "named-volume mount points writable by dev user"
   else
     fail "named-volume mount points NOT writable by dev (root-owned image dirs?)"
   fi
   docker rm -f "$TEST_CONTAINER" >/dev/null 2>&1 || true
-  docker volume rm test-claude-vol test-codex-vol >/dev/null 2>&1 || true
+  docker volume rm test-claude-vol test-codex-vol test-hermes-vol >/dev/null 2>&1 || true
 
   # 4h. Graceful no-credentials startup (Linux/CI parity).
   # Asserts the entrypoint runs cleanly when ZERO LLM tokens are piped —

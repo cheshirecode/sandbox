@@ -38,6 +38,7 @@
     "type=volume,source=${localEnv:USER}-gh,target=/workspace/home/.config/gh",
     "type=volume,source=${localEnv:USER}-claude,target=/workspace/home/.claude",
     "type=volume,source=${localEnv:USER}-codex,target=/workspace/home/.codex",
+    "type=volume,source=${localEnv:USER}-hermes,target=/workspace/home/.hermes",
     "type=tmpfs,target=/run/secrets"
   ],
   "runArgs": [
