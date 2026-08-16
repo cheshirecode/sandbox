@@ -137,12 +137,25 @@ probe_openai_credentials() {
 }
 
 # Probe host for OpenRouter credentials (used by Hermes Agent & OpenCode).
-# Probes host environment OPENROUTER_API_KEY first, then ~/.local/share/opencode/auth.json,
-# then ~/.hermes/config.json.
+# Probes host environment OPEN_ROUTER_API_KEY_HERMES / OPENROUTER_API_KEY first,
+# then ~/.hermes/.env, then ~/.local/share/opencode/auth.json, then ~/.hermes/config.json.
 probe_openrouter_credentials() {
+  if [[ -n "${OPEN_ROUTER_API_KEY_HERMES:-}" ]]; then
+    printf '%s' "$OPEN_ROUTER_API_KEY_HERMES"
+    return 0
+  fi
   if [[ -n "${OPENROUTER_API_KEY:-}" ]]; then
     printf '%s' "$OPENROUTER_API_KEY"
     return 0
+  fi
+  local hermes_env="$HOME/.hermes/.env"
+  if [[ -s "$hermes_env" ]]; then
+    local key
+    key=$(grep -E '^OPENROUTER_API_KEY=' "$hermes_env" 2>/dev/null | cut -d= -f2- | tr -d '\r\n' || true)
+    if [[ -n "$key" ]]; then
+      printf '%s' "$key"
+      return 0
+    fi
   fi
   local opencode_auth="$HOME/.local/share/opencode/auth.json"
   if [[ -s "$opencode_auth" ]]; then
@@ -166,7 +179,7 @@ except Exception:
   return 1
 }
 
-# Probe host for Hermes Agent configuration (~/.hermes/config.json).
+# Probe host for Hermes Agent configuration (~/.hermes/config.json or ~/.hermes/config.yaml).
 probe_hermes_credentials() {
   local hermes_config="$HOME/.hermes/config.json"
   if [[ -s "$hermes_config" ]]; then
@@ -178,9 +191,26 @@ probe_hermes_credentials() {
 
 # Probe host for Nous Portal credentials.
 probe_nous_credentials() {
+  if [[ -n "${HERMES_API_KEY_FREE:-}" ]]; then
+    printf '%s' "$HERMES_API_KEY_FREE"
+    return 0
+  fi
   if [[ -n "${NOUS_API_KEY:-}" ]]; then
     printf '%s' "$NOUS_API_KEY"
     return 0
+  fi
+  if [[ -n "${HERMES_API_KEY:-}" ]]; then
+    printf '%s' "$HERMES_API_KEY"
+    return 0
+  fi
+  local hermes_env="$HOME/.hermes/.env"
+  if [[ -s "$hermes_env" ]]; then
+    local key
+    key=$(grep -E '^(NOUS_API_KEY|HERMES_API_KEY)=' "$hermes_env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\r\n' || true)
+    if [[ -n "$key" ]]; then
+      printf '%s' "$key"
+      return 0
+    fi
   fi
   return 1
 }
