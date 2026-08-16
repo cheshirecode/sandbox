@@ -20,23 +20,18 @@ the commit history (search for "council Stage 6" in `git log`).
   artifacts (dotfiles install scripts, manifest entries, skills) via the
   snapshot-diff autosave hook.
 
-## Zero-config LLM auth
+## Zero-config LLM auth & Hermes Agent
 
-If you already have **Claude Code** logged in on your host (macOS), the
-sandbox auto-pipes your Anthropic OAuth credentials into the container
-via a tmpfs path at `up` time. Inside the sandbox, `claude` "just works"
-without any login step. Credentials persist across `docker rm` in a
-per-login named volume; the tmpfs source is shredded after the
-entrypoint reads it.
+The sandbox auto-pipes host LLM credentials into the container via tmpfs:
+- **Hermes Agent (Nous Research)**: Pre-installed via `uv`. Inherits OpenRouter credentials from host (`~/.local/share/opencode/auth.json` or `OPENROUTER_API_KEY`) or existing `~/.hermes/config.json`. Persistent memory, skills, cron schedules, and sessions survive `docker rm` in the `<login>-hermes` named volume.
+- **Claude Code**: Inherits Anthropic OAuth credentials. Sessions persist in `<login>-claude`.
+- **OpenAI Codex**: Inherits Codex credentials. Sessions persist in `<login>-codex`.
 
-**No keys, env vars, or login flows required** as long as your host has
-working `claude auth status`. Conversations started inside the sandbox
-live in the `<login>-claude` named volume, isolated from your host's
-`~/.claude/projects/` (which holds work conversations and is **never**
-crossed into the sandbox).
-
-macOS-only for v1.x (probe order: `~/.claude/.credentials.json` →
-macOS keychain). Linux/WSL2 + Codex/Gemini auto-pipe planned for v1.1.
+**No keys, env vars, or login flows required** as long as your host has working credentials. Run Hermes Agent instantly with:
+```bash
+bin/sandbox.sh hermes
+```
+or start the messaging gateway with `bin/sandbox.sh gateway`.
 
 ## First-time setup (fresh machine walkthrough)
 
@@ -87,6 +82,9 @@ $SANDBOX_WORKSPACE/.sandbox-home/      →   /workspace/home       bind      $HO
 $SANDBOX_WORKSPACE/learnings-inbox/    →   /workspace/inbox      bind      autosave dumps (gitignored)
 <login>-toolchains volume              →   /workspace/home/.{nvm,rustup,cargo}     toolchain caches (GB-scale)
 <login>-gh volume                      →   /workspace/home/.config/gh              gh oauth state
+<login>-hermes volume                  →   /workspace/home/.hermes                 Hermes memories, skills, cron, sessions
+<login>-claude volume                  →   /workspace/home/.claude                 Claude Code sessions & state
+<login>-codex volume                   →   /workspace/home/.codex                  Codex sessions & state
 ```
 
 `SANDBOX_WORKSPACE` defaults to the directory CONTAINING this repo. Override
@@ -160,6 +158,8 @@ Use `source ~/Documents/oss/.envrc` before `up` so the piped gh token is
 
 ```
 bin/sandbox.sh up               build (if needed) + run + drop into shell
+bin/sandbox.sh hermes [args...] launch Hermes Agent interactive TUI
+bin/sandbox.sh gateway [args...]launch Hermes Agent messaging gateway
 bin/sandbox.sh exec <cmd>       run <cmd> in the running container
 bin/sandbox.sh run-headless <cmd> [args...]
                                 non-TTY run with stdout/stderr/exit/meta artifacts

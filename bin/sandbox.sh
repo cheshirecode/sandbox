@@ -136,6 +136,55 @@ probe_openai_credentials() {
   return 1
 }
 
+# Probe host for OpenRouter credentials (used by Hermes Agent & OpenCode).
+# Probes host environment OPENROUTER_API_KEY first, then ~/.local/share/opencode/auth.json,
+# then ~/.hermes/config.json.
+probe_openrouter_credentials() {
+  if [[ -n "${OPENROUTER_API_KEY:-}" ]]; then
+    printf '%s' "$OPENROUTER_API_KEY"
+    return 0
+  fi
+  local opencode_auth="$HOME/.local/share/opencode/auth.json"
+  if [[ -s "$opencode_auth" ]]; then
+    local key
+    key=$(python3 -c '
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        d = json.load(f)
+        k = d.get("openrouter", {}).get("key")
+        if k:
+            print(k)
+except Exception:
+    pass
+' "$opencode_auth" 2>/dev/null || true)
+    if [[ -n "$key" ]]; then
+      printf '%s' "$key"
+      return 0
+    fi
+  fi
+  return 1
+}
+
+# Probe host for Hermes Agent configuration (~/.hermes/config.json).
+probe_hermes_credentials() {
+  local hermes_config="$HOME/.hermes/config.json"
+  if [[ -s "$hermes_config" ]]; then
+    cat "$hermes_config"
+    return 0
+  fi
+  return 1
+}
+
+# Probe host for Nous Portal credentials.
+probe_nous_credentials() {
+  if [[ -n "${NOUS_API_KEY:-}" ]]; then
+    printf '%s' "$NOUS_API_KEY"
+    return 0
+  fi
+  return 1
+}
+
 # --- Subcommand: doctor ----------------------------------------------------
 cmd_doctor() {
   echo "sandbox: host preflight"
@@ -149,7 +198,7 @@ cmd_doctor() {
   echo "  INFO github login:   $SANDBOX_LOGIN"
   echo "  INFO image:          $IMAGE_NAME:$IMAGE_TAG"
   echo "  INFO container name: $CONTAINER_NAME"
-  echo "  INFO volumes:        $VOL_TOOLCHAINS, $VOL_GH, $VOL_CLAUDE, $VOL_CODEX"
+  echo "  INFO volumes:        $VOL_TOOLCHAINS, $VOL_GH, $VOL_CLAUDE, $VOL_CODEX, $VOL_HERMES"
   ensure_runtime_dirs
   echo "  OK   workspace      $SANDBOX_WORKSPACE"
   echo "  OK   sandbox \$HOME  $SANDBOX_HOME_DIR"
@@ -304,6 +353,30 @@ cmd_up() {
     echo "sandbox: no Codex credentials on host — codex CLI will need manual login if used"
   fi
 
+  # Auto-pipe OpenRouter credentials for Hermes Agent & OpenCode
+  if openrouter_key="$(probe_openrouter_credentials)"; then
+    printf '%s' "$openrouter_key" | docker exec -i "$CONTAINER_NAME" sh -c \
+      'cat > /run/secrets/openrouter_token && chmod 0400 /run/secrets/openrouter_token'
+    unset openrouter_key
+    echo "sandbox: piped OpenRouter credentials (Hermes Agent will inherit your API session)"
+  fi
+
+  # Auto-pipe existing Hermes Agent configuration if present
+  if hermes_json="$(probe_hermes_credentials)"; then
+    printf '%s' "$hermes_json" | docker exec -i "$CONTAINER_NAME" sh -c \
+      'cat > /run/secrets/hermes_token && chmod 0400 /run/secrets/hermes_token'
+    unset hermes_json
+    echo "sandbox: piped Hermes Agent configuration (~/.hermes/config.json)"
+  fi
+
+  # Auto-pipe Nous Portal credentials if present
+  if nous_key="$(probe_nous_credentials)"; then
+    printf '%s' "$nous_key" | docker exec -i "$CONTAINER_NAME" sh -c \
+      'cat > /run/secrets/nous_token && chmod 0400 /run/secrets/nous_token'
+    unset nous_key
+    echo "sandbox: piped Nous Portal credentials"
+  fi
+
   if [[ $no_attach -eq 1 ]]; then
     wait_for_entrypoint_ready
     echo "sandbox: container running, ready for \`bin/sandbox.sh exec\` or \`bin/sandbox.sh run-headless\` (no shell attached)"
@@ -376,7 +449,28 @@ cmd_down() {
     docker stop --time=60 "$CONTAINER_NAME" >/dev/null
   fi
   docker rm "$CONTAINER_NAME" >/dev/null 2>&1 || true
-  echo "sandbox: stopped. Named volumes ($VOL_TOOLCHAINS, $VOL_GH, $VOL_CLAUDE, $VOL_CODEX) preserved."
+  echo "sandbox: stopped. Named volumes ($VOL_TOOLCHAINS, $VOL_GH, $VOL_CLAUDE, $VOL_CODEX, $VOL_HERMES) preserved."
+}
+
+# --- Subcommand: hermes ---------------------------------------------------
+# Quick launcher for Hermes Agent interactive TUI inside the sandbox.
+# Auto-starts the container in background if not already running.
+cmd_hermes() {
+  if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
+    echo "sandbox hermes: starting sandbox container"
+    cmd_up --no-attach
+  fi
+  docker exec -it "$CONTAINER_NAME" hermes "$@"
+}
+
+# --- Subcommand: gateway --------------------------------------------------
+# Quick launcher for Hermes Agent messaging gateway (Telegram, Discord, Slack, etc.)
+cmd_gateway() {
+  if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
+    echo "sandbox gateway: starting sandbox container"
+    cmd_up --no-attach
+  fi
+  docker exec -it "$CONTAINER_NAME" hermes gateway "$@"
 }
 
 # --- Subcommand: verify-llm-auth ------------------------------------------
@@ -394,6 +488,19 @@ cmd_verify_llm_auth() {
   local any_verified=0 any_failed=0
 
   echo "sandbox verify-llm-auth: checking in-container auth for installed providers"
+
+  # Hermes Agent
+  if docker exec "$CONTAINER_NAME" command -v hermes >/dev/null 2>&1; then
+    if docker exec "$CONTAINER_NAME" test -f /workspace/home/.hermes/config.json \
+        || docker exec "$CONTAINER_NAME" test -f /workspace/home/.hermes/.env; then
+      echo "  OK   hermes — Hermes Agent configured with credentials in ~/.hermes/"
+      any_verified=1
+    else
+      echo "  WARN hermes — hermes CLI present, but ~/.hermes/config.json not yet initialized"
+    fi
+  else
+    echo "  SKIP hermes — hermes CLI not installed in container"
+  fi
 
   # Claude Code
   if docker exec "$CONTAINER_NAME" command -v claude >/dev/null 2>&1; then
@@ -488,7 +595,7 @@ cmd_nuke() {
   echo "sandbox nuke: removing container, image, named volumes"
   docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
   docker image rm "$IMAGE_NAME:$IMAGE_TAG" >/dev/null 2>&1 || true
-  for v in "$VOL_TOOLCHAINS" "$VOL_GH" "$VOL_CLAUDE" "$VOL_CODEX"; do
+  for v in "$VOL_TOOLCHAINS" "$VOL_GH" "$VOL_CLAUDE" "$VOL_CODEX" "$VOL_HERMES"; do
     docker volume rm "$v" >/dev/null 2>&1 && echo "  removed volume $v" || true
   done
 
@@ -516,19 +623,20 @@ cmd_list() {
     echo "sandbox list: no sandbox profiles detected on this host."
     return 0
   fi
-  printf '%-22s %-12s %-10s %-10s %-10s\n' PROFILE CONTAINER VOL_GH VOL_CLAUDE VOL_CODEX
-  printf '%-22s %-12s %-10s %-10s %-10s\n' ------- --------- ------ ---------- ---------
+  printf '%-22s %-12s %-10s %-10s %-10s %-10s\n' PROFILE CONTAINER VOL_GH VOL_CLAUDE VOL_CODEX VOL_HERMES
+  printf '%-22s %-12s %-10s %-10s %-10s %-10s\n' ------- --------- ------ ---------- --------- ----------
   while IFS= read -r login; do
     [[ -z "$login" ]] && continue
     local cn="$login-sandbox"
     local cstate
     cstate=$(docker ps -a --filter "name=^${cn}$" --format '{{.Status}}' 2>/dev/null | head -1)
     [[ -z "$cstate" ]] && cstate="(none)"
-    local vgh vclaude vcodex
+    local vgh vclaude vcodex vhermes
     vgh=$(docker volume ls --format '{{.Name}}' | grep -qx "$login-gh" && echo "ok" || echo "-")
     vclaude=$(docker volume ls --format '{{.Name}}' | grep -qx "$login-claude" && echo "ok" || echo "-")
     vcodex=$(docker volume ls --format '{{.Name}}' | grep -qx "$login-codex" && echo "ok" || echo "-")
-    printf '%-22s %-12s %-10s %-10s %-10s\n' "$login" "${cstate:0:11}" "$vgh" "$vclaude" "$vcodex"
+    vhermes=$(docker volume ls --format '{{.Name}}' | grep -qx "$login-hermes" && echo "ok" || echo "-")
+    printf '%-22s %-12s %-10s %-10s %-10s %-10s\n' "$login" "${cstate:0:11}" "$vgh" "$vclaude" "$vcodex" "$vhermes"
   done <<< "$logins"
   echo
   echo "Profiles detected by their <login>-toolchains volume."
@@ -572,7 +680,7 @@ cmd_prune() {
   # 2. Orphan sandbox volumes (no container references them)
   local stale_vols
   stale_vols=$(docker volume ls --format '{{.Name}}' \
-    | grep -E -- '-(toolchains|gh|claude|codex)$' || true)
+    | grep -E -- '-(toolchains|gh|claude|codex|hermes)$' || true)
   if [[ -n "$stale_vols" ]]; then
     while IFS= read -r v; do
       [[ -z "$v" ]] && continue
@@ -643,7 +751,7 @@ cmd_inspect() {
   echo "  image:     $img"
   docker images --filter "reference=$img" --format '    size:  {{.Size}}\n    id:    {{.ID}}\n    created: {{.CreatedSince}}' || echo "    (none)"
   echo "  volumes:"
-  for v in "$login-toolchains" "$login-gh" "$login-claude" "$login-codex"; do
+  for v in "$login-toolchains" "$login-gh" "$login-claude" "$login-codex" "$login-hermes"; do
     if docker volume ls --format '{{.Name}}' | grep -qx "$v"; then
       local size
       size=$(docker run --rm -v "$v:/v" alpine du -sh /v 2>/dev/null | awk '{print $1}' || echo '?')
@@ -765,6 +873,8 @@ Active profile (--profile / \$SANDBOX_PROFILE / mounts.env auto-detect):
 
 Lifecycle (per-profile; add --profile=<name> to switch):
   bin/sandbox.sh up [--profile=<name>]      build + run + shell
+  bin/sandbox.sh hermes [args...]           launch Hermes Agent interactive TUI
+  bin/sandbox.sh gateway [args...]          launch Hermes Agent messaging gateway
   bin/sandbox.sh exec <cmd> [--profile=...]  run cmd in running container
   bin/sandbox.sh run-headless <cmd> [...]    non-TTY run with logs/artifacts
   bin/sandbox.sh down [--profile=...]        stop container
@@ -799,6 +909,8 @@ EOF
 cmd="${1:-}"; shift || true
 case "$cmd" in
   up)              cmd_up "$@" ;;
+  hermes)          cmd_hermes "$@" ;;
+  gateway)         cmd_gateway "$@" ;;
   exec)            cmd_exec "$@" ;;
   run-headless)    cmd_run_headless "$@" ;;
   down)            cmd_down ;;

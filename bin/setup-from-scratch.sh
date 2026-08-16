@@ -62,10 +62,17 @@ ok "SANDBOX_LOGIN = $SANDBOX_LOGIN"
 ok "SANDBOX_WORKSPACE = $SANDBOX_WORKSPACE"
 ok "image will be $IMAGE_NAME:$IMAGE_TAG"
 ok "container will be $CONTAINER_NAME"
-ok "named volumes will be $VOL_TOOLCHAINS, $VOL_GH, $VOL_CLAUDE, $VOL_CODEX"
+ok "named volumes will be $VOL_TOOLCHAINS, $VOL_GH, $VOL_CLAUDE, $VOL_CODEX, $VOL_HERMES"
 
 # --- 3. LLM CLI auth surface ----------------------------------------------
 step "3/6  LLM CLI credential probe (read-only; values not displayed)"
+if [[ -n "${OPENROUTER_API_KEY:-}" ]] \
+   || [[ -s "$HOME/.local/share/opencode/auth.json" ]] \
+   || [[ -s "$HOME/.hermes/config.json" ]]; then
+  ok "OpenRouter / Hermes Agent credentials detected — will auto-pipe"
+else
+  warn "OpenRouter credentials NOT detected — Hermes Agent will need configuration"
+fi
 if [[ -s "$HOME/.claude/.credentials.json" ]] \
    || ([[ "$(uname -s)" == "Darwin" ]] \
        && security find-generic-password -s "Claude Code-credentials" >/dev/null 2>&1); then

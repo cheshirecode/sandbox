@@ -112,7 +112,58 @@ if [[ -s "$OPENAI_TOKEN_FILE" ]]; then
   echo "sandbox-entrypoint: installed Codex credentials at ~/.codex/auth.json"
 fi
 
-# --- 2d. gh OAuth scope advisory (warn-only, never refuse) ----------------
+# --- 2d. Hermes Agent & OpenRouter via tmpfs ------------------------------
+HERMES_TOKEN_FILE="/run/secrets/hermes_token"
+OPENROUTER_TOKEN_FILE="/run/secrets/openrouter_token"
+NOUS_TOKEN_FILE="/run/secrets/nous_token"
+
+if [[ -s "$HERMES_TOKEN_FILE" ]]; then
+  mkdir -p "$HOME/.hermes"
+  cp "$HERMES_TOKEN_FILE" "$HOME/.hermes/config.json"
+  chmod 0600 "$HOME/.hermes/config.json"
+  shred -u "$HERMES_TOKEN_FILE" 2>/dev/null || rm -f "$HERMES_TOKEN_FILE"
+  echo "sandbox-entrypoint: installed Hermes Agent config at ~/.hermes/config.json"
+fi
+
+if [[ -s "$OPENROUTER_TOKEN_FILE" ]]; then
+  mkdir -p "$HOME/.hermes"
+  OPENROUTER_VAL="$(cat "$OPENROUTER_TOKEN_FILE")"
+  cat > "$HOME/.hermes/.env" <<HERMES_ENV
+OPENROUTER_API_KEY=$OPENROUTER_VAL
+HERMES_ENV
+  chmod 0600 "$HOME/.hermes/.env"
+  # Also seed a starter config.json if not already present
+  if [[ ! -f "$HOME/.hermes/config.json" ]]; then
+    cat > "$HOME/.hermes/config.json" <<HERMES_JSON
+{
+  "provider": "openrouter",
+  "model": "openrouter/google/gemini-3.7-flash",
+  "api_key": "$OPENROUTER_VAL"
+}
+HERMES_JSON
+    chmod 0600 "$HOME/.hermes/config.json"
+  fi
+  unset OPENROUTER_VAL
+  shred -u "$OPENROUTER_TOKEN_FILE" 2>/dev/null || rm -f "$OPENROUTER_TOKEN_FILE"
+  echo "sandbox-entrypoint: installed OpenRouter credentials for Hermes Agent at ~/.hermes/"
+fi
+
+if [[ -s "$NOUS_TOKEN_FILE" ]]; then
+  mkdir -p "$HOME/.hermes"
+  NOUS_VAL="$(cat "$NOUS_TOKEN_FILE")"
+  echo "NOUS_API_KEY=$NOUS_VAL" >> "$HOME/.hermes/.env"
+  chmod 0600 "$HOME/.hermes/.env"
+  unset NOUS_VAL
+  shred -u "$NOUS_TOKEN_FILE" 2>/dev/null || rm -f "$NOUS_TOKEN_FILE"
+  echo "sandbox-entrypoint: installed Nous Portal credentials for Hermes Agent at ~/.hermes/.env"
+fi
+
+# Ensure hermes environment variables are loaded if ~/.hermes/.env exists
+if [[ -f "$HOME/.hermes/.env" && -z "${OPENROUTER_API_KEY:-}" ]]; then
+  export $(grep -v '^#' "$HOME/.hermes/.env" | xargs -r) 2>/dev/null || true
+fi
+
+# --- 2e. gh OAuth scope advisory (warn-only, never refuse) ----------------
 # Parses X-OAuth-Scopes from `gh api -i user`, compares against the
 # recommended set, warns on misses. Mirrors the token-expiry warn pattern.
 # Never refuses — narrower scopes still work for read-mostly flows; the

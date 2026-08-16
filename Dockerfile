@@ -30,9 +30,16 @@ STOPSIGNAL SIGTERM
 # layer so the install pathway matches a fresh machine bootstrap.
 RUN apt-get update -qq && apt-get install -y --no-install-recommends \
       ca-certificates curl gnupg sudo \
-      git python3 python3-pip python3-yaml \
-      bash less procps tini \
+      git python3 python3-pip python3-yaml python3-venv python3-dev \
+      build-essential bash less procps tini ffmpeg \
+      libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+      libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+      libgbm1 libpango-1.0-0 libcairo2 libasound2t64 \
     && rm -rf /var/lib/apt/lists/*
+
+# Astral uv — fast Python package and virtualenv manager for Hermes Agent & Python toolchains
+RUN curl -fsSL https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="/usr/local/bin" sh \
+    && uv --version
 
 # gh apt source so the dotfiles installer can `apt install gh`.
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
@@ -55,6 +62,12 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - >/dev/null \
     && rm -rf /var/lib/apt/lists/* \
     && node --version && npm --version
 
+# Hermes Agent — pre-install via uv into /usr/local/lib/hermes-agent with global CLI wrapper
+RUN uv venv /usr/local/lib/hermes-agent --python python3 \
+    && /usr/local/lib/hermes-agent/bin/pip install --no-cache-dir hermes-agent \
+    && ln -sf /usr/local/lib/hermes-agent/bin/hermes /usr/local/bin/hermes \
+    || true
+
 # --- User layer -------------------------------------------------------------
 # UID arg matters on Linux (real ownership on bind mounts); on macOS/OrbStack
 # VirtioFS fakes ownership so it's cosmetic. Default 1000 is the Ubuntu norm.
@@ -76,6 +89,7 @@ RUN mkdir -p \
       /workspace/home \
       /workspace/home/.claude \
       /workspace/home/.codex \
+      /workspace/home/.hermes \
       /workspace/home/.cache/toolchains \
       /workspace/home/.config/gh \
       /workspace/inbox \

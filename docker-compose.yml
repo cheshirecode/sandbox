@@ -1,0 +1,50 @@
+services:
+  sandbox:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        HOST_UID: ${HOST_UID:-1000}
+        HOST_GID: ${HOST_GID:-1000}
+    image: ${SANDBOX_LOGIN:-dev}/sandbox:v1
+    container_name: ${SANDBOX_LOGIN:-dev}-sandbox
+    hostname: ${SANDBOX_LOGIN:-dev}-sandbox
+    user: dev
+    working_dir: /workspace/oss
+    stop_signal: SIGTERM
+    stop_grace_period: 60s
+    stdin_open: true
+    tty: true
+    environment:
+      - HOME=/workspace/home
+      - SHELL=/bin/bash
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - NOUS_API_KEY=${NOUS_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    volumes:
+      - ${SANDBOX_WORKSPACE:-..}:/workspace/oss
+      - ${SANDBOX_PROJECTS_DIR:-../../projects}:/workspace/projects
+      - ${SANDBOX_WORKSPACE:-..}/.sandbox-home:/workspace/home
+      - ${SANDBOX_WORKSPACE:-..}/learnings-inbox:/workspace/inbox
+      - toolchains:/workspace/home/.cache/toolchains
+      - gh-config:/workspace/home/.config/gh
+      - claude-config:/workspace/home/.claude
+      - codex-config:/workspace/home/.codex
+      - hermes-config:/workspace/home/.hermes
+      - type: tmpfs
+        target: /run/secrets
+        tmpfs:
+          size: 65536
+
+volumes:
+  toolchains:
+    name: ${SANDBOX_LOGIN:-dev}-toolchains
+  gh-config:
+    name: ${SANDBOX_LOGIN:-dev}-gh
+  claude-config:
+    name: ${SANDBOX_LOGIN:-dev}-claude
+  codex-config:
+    name: ${SANDBOX_LOGIN:-dev}-codex
+  hermes-config:
+    name: ${SANDBOX_LOGIN:-dev}-hermes
