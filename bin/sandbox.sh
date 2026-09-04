@@ -218,7 +218,7 @@ probe_nous_credentials() {
 # --- Subcommand: doctor ----------------------------------------------------
 cmd_doctor() {
   echo "sandbox: host preflight"
-  command -v docker >/dev/null && echo "  OK   docker $(docker --version)" || { echo "  FAIL docker not on PATH"; exit 1; }
+  command -v "$SANDBOX_RT" >/dev/null && echo "  OK   runtime $SANDBOX_RT $(docker --version)" || { echo "  FAIL container runtime '$SANDBOX_RT' not on PATH"; exit 1; }
   command -v gh     >/dev/null && echo "  OK   gh $(gh --version | head -1)" || echo "  WARN gh not on PATH"
   command -v direnv >/dev/null && echo "  OK   direnv $(direnv --version)"    || echo "  WARN direnv not on PATH (identity swap won't auto-load)"
   echo "  INFO docker runtime: $(detect_docker_host)"
