@@ -305,13 +305,20 @@ cmd_up() {
   # WORKLOG_LDAP. This is what catches the migration-era regression where
   # `bin/sandbox.sh --profile=cheshirecode up` from a non-direnv shell
   # silently baked the host's work identity into the container.
+  # Precedence: explicit GitHub-login declarations first. WORKLOG_LDAP is
+  # last resort because it can name a worklog NAMESPACE (e.g. "oss"), not a
+  # GitHub login — an .envrc with WORKLOG_LDAP=oss plus GITHUB_USER=<login>
+  # used to refuse startup against the correct token (observed 2026-09-04,
+  # exit 78 with expected=oss vs actual=<login>).
   local expected_login=""
-  if [[ -n "${WORKLOG_LDAP:-}" ]]; then
-    expected_login="$WORKLOG_LDAP"
-  elif [[ -n "${SANDBOX_LOGIN_EXPECTED:-}" ]]; then
+  if [[ -n "${SANDBOX_LOGIN_EXPECTED:-}" ]]; then
     expected_login="$SANDBOX_LOGIN_EXPECTED"
+  elif [[ -n "${GITHUB_USER:-}" ]]; then
+    expected_login="$GITHUB_USER"
   elif [[ -n "${SANDBOX_PROFILE_NAME:-}" && -n "${SANDBOX_LOGIN:-}" ]]; then
     expected_login="$SANDBOX_LOGIN"
+  elif [[ -n "${WORKLOG_LDAP:-}" ]]; then
+    expected_login="$WORKLOG_LDAP"
   fi
   if [[ -n "$expected_login" ]]; then
     local actual_login
