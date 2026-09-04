@@ -61,6 +61,25 @@ json.loads(t)
   else
     fail "devcontainer.json malformed"
   fi
+
+  # Runtime shim contract (mounts.env). Each was proven red against the
+  # pre-shim mounts.env before landing.
+  if (SANDBOX_RUNTIME=bogus "$BASH" -c 'source mounts.env' 2>/dev/null); then
+    fail "shim rejects unknown SANDBOX_RUNTIME"
+  else
+    ok "shim rejects unknown SANDBOX_RUNTIME"
+  fi
+  shim_out=$(SANDBOX_RUNTIME=podman PATH="$(mktemp -d)" "$BASH" -c 'source mounts.env' 2>&1 || true)
+  if printf '%s' "$shim_out" | grep -q 'not on PATH'; then
+    ok "shim names a runtime missing from PATH"
+  else
+    fail "shim names a runtime missing from PATH"
+  fi
+  if "$BASH" -c 'source mounts.env >/dev/null 2>&1; [ -n "$SANDBOX_RT" ] && declare -F docker >/dev/null'; then
+    ok "shim resolves a runtime and shadows docker"
+  else
+    fail "shim resolves a runtime and shadows docker"
+  fi
 }
 
 # --- Build -----------------------------------------------------------------
