@@ -158,9 +158,14 @@ if [[ -s "$NOUS_TOKEN_FILE" ]]; then
   echo "sandbox-entrypoint: installed Nous Portal credentials for Hermes Agent at ~/.hermes/.env"
 fi
 
-# Ensure hermes environment variables are loaded if ~/.hermes/.env exists
+# Ensure hermes environment variables are loaded if ~/.hermes/.env exists.
+# set -a + source instead of export $(xargs): survives values with spaces
+# and keeps shellcheck SC2046 clean.
 if [[ -f "$HOME/.hermes/.env" && -z "${OPENROUTER_API_KEY:-}" ]]; then
-  export $(grep -v '^#' "$HOME/.hermes/.env" | xargs -r) 2>/dev/null || true
+  set -a
+  # shellcheck disable=SC1091
+  source "$HOME/.hermes/.env" 2>/dev/null || true
+  set +a
 fi
 
 # --- 2e. gh OAuth scope advisory (warn-only, never refuse) ----------------
