@@ -80,6 +80,21 @@ json.loads(t)
   else
     fail "shim resolves a runtime and shadows docker"
   fi
+
+  # Tailored seccomp profile: committed, parseable, carries the bwrap rule,
+  # and mounts.env uses it instead of blanket unconfined.
+  if jq -e '.syscalls[] | select(.comment? // "" | contains("bubblewrap userns"))' seccomp-bwrap.json >/dev/null 2>&1; then
+    ok "seccomp-bwrap.json parses and carries the bwrap rule"
+  else
+    fail "seccomp-bwrap.json missing, malformed, or lost the bwrap rule"
+  fi
+  if grep -q 'seccomp=unconfined' mounts.env; then
+    fail "mounts.env still uses seccomp=unconfined"
+  elif grep -q 'seccomp-bwrap.json' mounts.env; then
+    ok "mounts.env uses the tailored seccomp profile"
+  else
+    fail "mounts.env references no seccomp profile"
+  fi
 }
 
 # --- Build -----------------------------------------------------------------
@@ -485,7 +500,7 @@ test_functional() {
   # every "blocked" check below pass for the wrong reason (observed: COPY
   # --chmod=0644 left the parent dir non-traversable and all fences
   # false-greened while srt just errored).
-  if docker run --rm --security-opt seccomp=unconfined --entrypoint bash "$TEST_IMAGE" -lc '
+  if docker run --rm --security-opt "seccomp=$REPO_ROOT/seccomp-bwrap.json" --entrypoint bash "$TEST_IMAGE" -lc '
         command -v srt >/dev/null || exit 93
         cd /tmp
         srt --settings /usr/local/share/sandbox/srt-settings.json bash -c "touch /tmp/srt-ok-probe" \
@@ -494,7 +509,7 @@ test_functional() {
   else
     fail "srt positive control failed — fences below are not trustworthy"
   fi
-  if docker run --rm --security-opt seccomp=unconfined --entrypoint bash "$TEST_IMAGE" -lc '
+  if docker run --rm --security-opt "seccomp=$REPO_ROOT/seccomp-bwrap.json" --entrypoint bash "$TEST_IMAGE" -lc '
         command -v srt >/dev/null || exit 93
         cd /tmp
         touch "$HOME/ctl-probe" || exit 90
@@ -509,7 +524,7 @@ test_functional() {
   # curl flags must ride inside bash -c: bare `srt curl -sS ...` lets
   # commander parse -sS as srt's own -s(ettings) flag with value "S", and the
   # resulting refusal false-greened this check (observed live).
-  if docker run --rm --security-opt seccomp=unconfined --entrypoint bash "$TEST_IMAGE" -lc '
+  if docker run --rm --security-opt "seccomp=$REPO_ROOT/seccomp-bwrap.json" --entrypoint bash "$TEST_IMAGE" -lc '
         command -v srt >/dev/null || exit 93
         if srt --settings /usr/local/share/sandbox/srt-settings.json bash -c "curl -sS --max-time 10 https://example.com" >/dev/null 2>&1; then
           exit 91
@@ -519,7 +534,7 @@ test_functional() {
   else
     fail "srt egress allowlist did not block example.com"
   fi
-  if docker run --rm --security-opt seccomp=unconfined --entrypoint bash "$TEST_IMAGE" -lc '
+  if docker run --rm --security-opt "seccomp=$REPO_ROOT/seccomp-bwrap.json" --entrypoint bash "$TEST_IMAGE" -lc '
         command -v srt >/dev/null || exit 93
         srt --settings /usr/local/share/sandbox/srt-settings.json bash -c "curl -sS --max-time 20 https://api.github.com/zen" >/dev/null'; then
     ok "srt allows allowlisted egress (positive control)"
