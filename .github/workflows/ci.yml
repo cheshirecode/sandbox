@@ -70,7 +70,6 @@ jobs:
         env:
           SANDBOX_PREBUILT_IMAGE: ${{ env.WARM_TAG }}
         run: ./tests/run.sh build
-        run: ./tests/run.sh build
 
       - name: Functional tests
         run: ./tests/run.sh functional
