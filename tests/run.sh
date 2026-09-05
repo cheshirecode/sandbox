@@ -120,7 +120,17 @@ json.loads(t)
 # --- Build -----------------------------------------------------------------
 test_build() {
   echo "=== build ==="
-  if docker build \
+  # CI hands in a buildx-built image (GHA layer cache); a classic docker
+  # build cannot reuse that cache, so retag instead of rebuilding. The
+  # size budget below still runs against the tagged image either way.
+  if [[ -n "${SANDBOX_PREBUILT_IMAGE:-}" ]]; then
+    if docker tag "$SANDBOX_PREBUILT_IMAGE" "$TEST_IMAGE"; then
+      ok "docker build (prebuilt: $SANDBOX_PREBUILT_IMAGE)"
+    else
+      fail "prebuilt image $SANDBOX_PREBUILT_IMAGE not found"
+      return 1
+    fi
+  elif docker build \
         --build-arg "HOST_UID=$(id -u 2>/dev/null || echo 1000)" \
         --build-arg "HOST_GID=$(id -g 2>/dev/null || echo 1000)" \
         -t "$TEST_IMAGE" \
