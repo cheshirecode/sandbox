@@ -506,15 +506,25 @@ test_functional() {
   else
     fail "srt write fence did not hold"
   fi
+  # curl flags must ride inside bash -c: bare `srt curl -sS ...` lets
+  # commander parse -sS as srt's own -s(ettings) flag with value "S", and the
+  # resulting refusal false-greened this check (observed live).
   if docker run --rm --security-opt seccomp=unconfined --entrypoint bash "$TEST_IMAGE" -lc '
         command -v srt >/dev/null || exit 93
-        if srt --settings /usr/local/share/sandbox/srt-settings.json curl -sS --max-time 10 https://example.com >/dev/null 2>&1; then
+        if srt --settings /usr/local/share/sandbox/srt-settings.json bash -c "curl -sS --max-time 10 https://example.com" >/dev/null 2>&1; then
           exit 91
         fi
         exit 0'; then
     ok "srt blocks non-allowlisted egress"
   else
     fail "srt egress allowlist did not block example.com"
+  fi
+  if docker run --rm --security-opt seccomp=unconfined --entrypoint bash "$TEST_IMAGE" -lc '
+        command -v srt >/dev/null || exit 93
+        srt --settings /usr/local/share/sandbox/srt-settings.json bash -c "curl -sS --max-time 20 https://api.github.com/zen" >/dev/null'; then
+    ok "srt allows allowlisted egress (positive control)"
+  else
+    fail "srt allowlisted egress broken — the block above may be a refusal, not a fence"
   fi
 }
 
