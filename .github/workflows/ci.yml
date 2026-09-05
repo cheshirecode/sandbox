@@ -1,5 +1,8 @@
 name: ci
 
+env:
+  WARM_TAG: sandbox-ci-warm:latest
+
 on:
   push:
     branches: [main]
@@ -45,7 +48,28 @@ jobs:
           echo "GITHUB_TOKEN=" >> "$GITHUB_ENV"
           echo "GH_TOKEN=" >> "$GITHUB_ENV"
 
+      - uses: docker/setup-buildx-action@v3
+      # Build once with the GHA layer cache and hand the loaded image to
+      # tests/run.sh build via SANDBOX_PREBUILT_IMAGE (a classic `docker
+      # build` cannot see a buildx builder's cache, so warming alone would
+      # not help). The Dockerfile still fully builds (cached), and run.sh
+      # still runs its size budget against the tagged image.
+      - name: Build image via GHA layer cache
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          build-args: |
+            HOST_UID=1001
+            HOST_GID=1001
+          tags: ${{ env.WARM_TAG }}
+          load: true
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
       - name: Build image
+        env:
+          SANDBOX_PREBUILT_IMAGE: ${{ env.WARM_TAG }}
+        run: ./tests/run.sh build
         run: ./tests/run.sh build
 
       - name: Functional tests
