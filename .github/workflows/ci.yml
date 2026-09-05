@@ -48,6 +48,13 @@ jobs:
           echo "GITHUB_TOKEN=" >> "$GITHUB_ENV"
           echo "GH_TOKEN=" >> "$GITHUB_ENV"
 
+      # bwrap inside the container needs userns + mount propagation; the
+      # Ubuntu 24.04 runner's apparmor blocks it by default (observed:
+      # "bwrap: Failed to make / slave: Permission denied"). Same sysctl
+      # the srt-policy-packs CI uses.
+      - name: allow unprivileged userns (Ubuntu 24.04 apparmor)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
       - uses: docker/setup-buildx-action@v3
       # Build once with the GHA layer cache and hand the loaded image to
       # tests/run.sh build via SANDBOX_PREBUILT_IMAGE (a classic `docker
