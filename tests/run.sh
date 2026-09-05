@@ -26,6 +26,16 @@ source mounts.env
 TEST_IMAGE="$IMAGE_NAME:test"
 TEST_CONTAINER="${SANDBOX_LOGIN}-sandbox-test"
 
+# srt (bwrap) needs mount propagation inside the test containers. On hosts
+# whose docker daemon enforces apparmor (GitHub ubuntu runners; most Linux),
+# the docker-default profile denies it even with the userns sysctl open —
+# observed on CI as "bwrap: Failed to make / slave: Permission denied"
+# while the same tests pass on Docker Desktop (no apparmor in its VM).
+SRT_SECURITY_OPTS=(--security-opt "seccomp=$REPO_ROOT/seccomp-bwrap.json")
+if docker info --format '{{join .SecurityOptions ","}}' 2>/dev/null | grep -q apparmor; then
+  SRT_SECURITY_OPTS+=(--security-opt apparmor=unconfined)
+fi
+
 PASS=0; FAIL=0
 say() { printf "  %-7s %s\n" "$1" "$2"; }
 ok()   { say PASS "$1"; PASS=$((PASS+1)); }
@@ -530,7 +540,7 @@ test_functional() {
   # every "blocked" check below pass for the wrong reason (observed: COPY
   # --chmod=0644 left the parent dir non-traversable and all fences
   # false-greened while srt just errored).
-  if docker run --rm --security-opt "seccomp=$REPO_ROOT/seccomp-bwrap.json" --entrypoint bash "$TEST_IMAGE" -lc '
+  if docker run --rm "${SRT_SECURITY_OPTS[@]}" --entrypoint bash "$TEST_IMAGE" -lc '
         command -v srt >/dev/null || exit 93
         cd /tmp
         srt --settings /usr/local/share/sandbox/srt-settings.json bash -c "touch /tmp/srt-ok-probe" \
@@ -539,7 +549,7 @@ test_functional() {
   else
     fail "srt positive control failed — fences below are not trustworthy"
   fi
-  if docker run --rm --security-opt "seccomp=$REPO_ROOT/seccomp-bwrap.json" --entrypoint bash "$TEST_IMAGE" -lc '
+  if docker run --rm "${SRT_SECURITY_OPTS[@]}" --entrypoint bash "$TEST_IMAGE" -lc '
         command -v srt >/dev/null || exit 93
         cd /tmp
         touch "$HOME/ctl-probe" || exit 90
@@ -554,7 +564,7 @@ test_functional() {
   # curl flags must ride inside bash -c: bare `srt curl -sS ...` lets
   # commander parse -sS as srt's own -s(ettings) flag with value "S", and the
   # resulting refusal false-greened this check (observed live).
-  if docker run --rm --security-opt "seccomp=$REPO_ROOT/seccomp-bwrap.json" --entrypoint bash "$TEST_IMAGE" -lc '
+  if docker run --rm "${SRT_SECURITY_OPTS[@]}" --entrypoint bash "$TEST_IMAGE" -lc '
         command -v srt >/dev/null || exit 93
         if srt --settings /usr/local/share/sandbox/srt-settings.json bash -c "curl -sS --max-time 10 https://example.com" >/dev/null 2>&1; then
           exit 91
@@ -564,7 +574,7 @@ test_functional() {
   else
     fail "srt egress allowlist did not block example.com"
   fi
-  if docker run --rm --security-opt "seccomp=$REPO_ROOT/seccomp-bwrap.json" --entrypoint bash "$TEST_IMAGE" -lc '
+  if docker run --rm "${SRT_SECURITY_OPTS[@]}" --entrypoint bash "$TEST_IMAGE" -lc '
         command -v srt >/dev/null || exit 93
         srt --settings /usr/local/share/sandbox/srt-settings.json bash -c "curl -sS --max-time 20 https://api.github.com/zen" >/dev/null'; then
     ok "srt allows allowlisted egress (positive control)"
