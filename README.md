@@ -112,6 +112,14 @@ Everything else is on host bind mounts and inspectable from your editor.
   first start; edit that copy to customize. Inside a container srt runs in
   `enableWeakerNestedSandbox` mode — weaker than host srt, still a real
   egress allowlist for untrusted commands.
+- The policy content comes from the `generic-agent` pack of
+  [srt-policy-packs](https://github.com/cheshirecode/srt-policy-packs); this
+  repo is its first consumer. `srt-settings.json` is a **vendored** render of
+  that pack plus `srt-settings.overlay.json` (the sandbox-only extras) and the
+  `--nested` derivation — so container start does no network fetch. Do not
+  hand-edit `srt-settings.json`: edit the overlay, then run
+  `tools/sync-srt-policy.sh`. `tests/run.sh static` fails on drift when a
+  pack checkout is present (`SRT_POLICY_PACKS=/path/to/srt-policy-packs`).
 
 ## Workflow extraction
 

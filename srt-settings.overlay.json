@@ -1,0 +1,19 @@
+{
+  "_comment": "Sandbox-specific delta applied on top of the srt-policy-packs generic-agent pack. Entries here are UNIONED with the pack's (pack order first, overlay extras appended); the overlay never removes a pack entry, so an upstream deny always survives the merge. Regenerate srt-settings.json with tools/sync-srt-policy.sh after editing this file.",
+  "_settings_comment": "Default srt policy for untrusted commands inside the sandbox. Deny-by-default egress: only the domains a personal-OSS workflow needs. enableWeakerNestedSandbox is required inside Docker (no privileged namespaces) and weakens isolation vs host srt — treat this as an egress allowlist plus a secrets fence, not a kernel boundary. Installed to ~/.srt-settings.json by the entrypoint when absent; edit the copy in your home volume to customize.",
+  "network": {
+    "allowedDomains": [
+      "*.npmjs.org"
+    ],
+    "deniedDomains": []
+  },
+  "filesystem": {
+    "denyRead": [
+      "~/.hermes/.env"
+    ],
+    "allowWrite": [
+      "/workspace/oss"
+    ],
+    "denyWrite": []
+  }
+}
