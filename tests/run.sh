@@ -95,6 +95,26 @@ json.loads(t)
   else
     fail "mounts.env references no seccomp profile"
   fi
+
+  # srt policy provenance. srt-settings.json is a vendored render of the
+  # srt-policy-packs generic-agent pack; a hand-edit here silently forks the
+  # sandbox off the pack. The marker check needs no pack checkout, so it
+  # always runs; the drift check needs one and SKIPs (exit 93) without it.
+  if jq -e '._source | strings | contains("srt-policy-packs")' srt-settings.json >/dev/null 2>&1; then
+    ok "srt-settings.json declares its pack provenance"
+  else
+    fail "srt-settings.json lost its _source provenance marker"
+  fi
+  srt_sync_rc=0
+  srt_sync_out=$(./tools/sync-srt-policy.sh --check 2>&1) || srt_sync_rc=$?
+  if [ $srt_sync_rc -eq 0 ]; then
+    ok "srt-settings.json matches the generic-agent pack + overlay"
+  elif [ $srt_sync_rc -eq 93 ]; then
+    say SKIP "no srt-policy-packs checkout (set SRT_POLICY_PACKS to drift-check)"
+  else
+    printf '%s\n' "$srt_sync_out"
+    fail "srt-settings.json drifted from the pack (run tools/sync-srt-policy.sh)"
+  fi
 }
 
 # --- Build -----------------------------------------------------------------

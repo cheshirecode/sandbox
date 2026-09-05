@@ -13,9 +13,18 @@ jobs:
     timeout-minutes: 3
     steps:
       - uses: actions/checkout@v4
+      # srt-settings.json is a vendored render of the srt-policy-packs
+      # generic-agent pack. Without this checkout the drift check SKIPs and
+      # a hand-edit of the policy would sail through CI unnoticed.
+      - uses: actions/checkout@v4
+        with:
+          repository: cheshirecode/srt-policy-packs
+          path: .srt-policy-packs
       - name: Install shellcheck
         run: sudo apt-get update -qq && sudo apt-get install -y shellcheck
       - name: Run static suite
+        env:
+          SRT_POLICY_PACKS: ${{ github.workspace }}/.srt-policy-packs
         run: ./tests/run.sh static
 
   build-and-functional:
