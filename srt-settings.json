@@ -1,5 +1,6 @@
 {
   "_comment": "Default srt policy for untrusted commands inside the sandbox. Deny-by-default egress: only the domains a personal-OSS workflow needs. enableWeakerNestedSandbox is required inside Docker (no privileged namespaces) and weakens isolation vs host srt — treat this as an egress allowlist plus a secrets fence, not a kernel boundary. Installed to ~/.srt-settings.json by the entrypoint when absent; edit the copy in your home volume to customize.",
+  "_source": "vendored from github.com/cheshirecode/srt-policy-packs packs/generic-agent.json (sha256 d1424b840fc5953b26d2515a1fe220b5e3e3d884c4386ad4a9040c0be58049dc) + srt-settings.overlay.json, --nested derivation, by tools/sync-srt-policy.sh. Do not hand-edit: edit srt-settings.overlay.json (or the pack upstream) and re-run the script.",
   "enableWeakerNestedSandbox": true,
   "network": {
     "allowedDomains": [
@@ -7,11 +8,11 @@
       "*.github.com",
       "*.githubusercontent.com",
       "registry.npmjs.org",
-      "*.npmjs.org",
       "pypi.org",
       "files.pythonhosted.org",
       "api.anthropic.com",
-      "statsig.anthropic.com"
+      "statsig.anthropic.com",
+      "*.npmjs.org"
     ],
     "deniedDomains": []
   },
@@ -19,10 +20,11 @@
     "denyRead": [
       "~/.ssh",
       "/run/secrets",
+      "~/.config/gh",
+      "~/.aws",
       "~/.claude/.credentials.json",
       "~/.codex/auth.json",
-      "~/.hermes/.env",
-      "~/.config/gh"
+      "~/.hermes/.env"
     ],
     "allowWrite": [
       ".",
