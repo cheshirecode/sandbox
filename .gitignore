@@ -18,3 +18,4 @@ id_ecdsa
 
 # macOS
 .DS_Store
+.srt-policy-packs/
