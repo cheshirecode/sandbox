@@ -460,7 +460,21 @@ test_functional() {
   else
     fail "srt missing from image"
   fi
-  if docker run --rm --entrypoint bash "$TEST_IMAGE" -lc '
+  # Positive control FIRST: an allowed action must SUCCEED under srt with
+  # the baked policy. Without this, a policy file srt cannot even read makes
+  # every "blocked" check below pass for the wrong reason (observed: COPY
+  # --chmod=0644 left the parent dir non-traversable and all fences
+  # false-greened while srt just errored).
+  if docker run --rm --security-opt seccomp=unconfined --entrypoint bash "$TEST_IMAGE" -lc '
+        command -v srt >/dev/null || exit 93
+        cd /tmp
+        srt --settings /usr/local/share/sandbox/srt-settings.json bash -c "touch /tmp/srt-ok-probe" \
+          && [ -f /tmp/srt-ok-probe ]'; then
+    ok "srt allows a policy-permitted write (positive control)"
+  else
+    fail "srt positive control failed — fences below are not trustworthy"
+  fi
+  if docker run --rm --security-opt seccomp=unconfined --entrypoint bash "$TEST_IMAGE" -lc '
         command -v srt >/dev/null || exit 93
         cd /tmp
         touch "$HOME/ctl-probe" || exit 90
@@ -472,7 +486,7 @@ test_functional() {
   else
     fail "srt write fence did not hold"
   fi
-  if docker run --rm --entrypoint bash "$TEST_IMAGE" -lc '
+  if docker run --rm --security-opt seccomp=unconfined --entrypoint bash "$TEST_IMAGE" -lc '
         command -v srt >/dev/null || exit 93
         if srt --settings /usr/local/share/sandbox/srt-settings.json curl -sS --max-time 10 https://example.com >/dev/null 2>&1; then
           exit 91
