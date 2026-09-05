@@ -93,10 +93,33 @@ fi
 # ~/.claude so the credentials persist across docker rm.
 # Graceful skip if not piped — Claude Code can still be installed + logged-
 # in manually inside the sandbox.
-# --- srt default policy (installed once; the home volume owns it after) ---
-if [[ ! -f "$HOME/.srt-settings.json" && -f /usr/local/share/sandbox/srt-settings.json ]]; then
-  cp /usr/local/share/sandbox/srt-settings.json "$HOME/.srt-settings.json"
-  echo "sandbox-entrypoint: installed default srt policy at ~/.srt-settings.json"
+# --- srt default policy -----------------------------------------------------
+# Install the baked default and record its hash. On later boots, upgrade the
+# file only while it is an UNEDITED default (current hash equals the recorded
+# one, or no marker exists yet — pre-marker installs were never user-edited).
+# A user-edited policy (hash differs from the marker) is never touched. An
+# install-once copy left a schema-stale default in the home volume forever
+# (observed 2026-09-05: srt refused every command against it).
+SRT_DEFAULT=/usr/local/share/sandbox/srt-settings.json
+SRT_MARKER="$HOME/.sandbox/srt-settings.default.sha256"
+if [[ -f "$SRT_DEFAULT" ]]; then
+  srt_default_sha="$(sha256sum "$SRT_DEFAULT" | awk '{print $1}')"
+  if [[ ! -f "$HOME/.srt-settings.json" ]]; then
+    cp "$SRT_DEFAULT" "$HOME/.srt-settings.json"
+    printf '%s\n' "$srt_default_sha" > "$SRT_MARKER"
+    echo "sandbox-entrypoint: installed default srt policy at ~/.srt-settings.json"
+  else
+    srt_current_sha="$(sha256sum "$HOME/.srt-settings.json" | awk '{print $1}')"
+    if [[ ! -f "$SRT_MARKER" || "$(cat "$SRT_MARKER")" == "$srt_current_sha" ]]; then
+      if [[ "$srt_current_sha" != "$srt_default_sha" ]]; then
+        cp "$HOME/.srt-settings.json" "$HOME/.srt-settings.json.bak"
+        cp "$SRT_DEFAULT" "$HOME/.srt-settings.json"
+        echo "sandbox-entrypoint: upgraded srt policy to current default (previous copy at ~/.srt-settings.json.bak)"
+      fi
+      printf '%s\n' "$srt_default_sha" > "$SRT_MARKER"
+    fi
+  fi
+  unset srt_default_sha srt_current_sha
 fi
 
 ANTHROPIC_TOKEN_FILE="/run/secrets/anthropic_token"
