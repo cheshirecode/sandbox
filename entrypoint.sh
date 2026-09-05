@@ -93,6 +93,12 @@ fi
 # ~/.claude so the credentials persist across docker rm.
 # Graceful skip if not piped — Claude Code can still be installed + logged-
 # in manually inside the sandbox.
+# --- srt default policy (installed once; the home volume owns it after) ---
+if [[ ! -f "$HOME/.srt-settings.json" && -f /usr/local/share/sandbox/srt-settings.json ]]; then
+  cp /usr/local/share/sandbox/srt-settings.json "$HOME/.srt-settings.json"
+  echo "sandbox-entrypoint: installed default srt policy at ~/.srt-settings.json"
+fi
+
 ANTHROPIC_TOKEN_FILE="/run/secrets/anthropic_token"
 if [[ -s "$ANTHROPIC_TOKEN_FILE" ]]; then
   mkdir -p "$HOME/.claude"

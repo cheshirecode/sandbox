@@ -105,6 +105,13 @@ Everything else is on host bind mounts and inspectable from your editor.
 - Git identity AUTO-DERIVED from `gh api user` against the piped token —
   whoever owns the token gets credited; no hardcoded names.
 - gpg signing disabled inside the sandbox.
+- Per-command policy via `srt` (Anthropic sandbox-runtime, preinstalled):
+  `srt <cmd>` runs `<cmd>` under a deny-by-default egress allowlist plus a
+  secrets fence (`~/.ssh`, `/run/secrets`, piped credential files are
+  read-denied). Default policy is installed to `~/.srt-settings.json` on
+  first start; edit that copy to customize. Inside a container srt runs in
+  `enableWeakerNestedSandbox` mode — weaker than host srt, still a real
+  egress allowlist for untrusted commands.
 
 ## Workflow extraction
 

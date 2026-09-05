@@ -48,7 +48,7 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
       > /etc/apt/sources.list.d/github-cli.list \
     && apt-get update -qq \
-    && apt-get install -y --no-install-recommends gh ripgrep jq direnv \
+    && apt-get install -y --no-install-recommends gh ripgrep jq direnv bubblewrap socat \
     && rm -rf /var/lib/apt/lists/*
 
 # Node via NodeSource — evidence-based from n=3 dogfood: every
@@ -63,6 +63,14 @@ RUN curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash - >/dev
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/* \
     && node --version && npm --version
+
+# srt (Anthropic sandbox-runtime) — per-command filesystem + egress policy
+# inside the sandbox. bubblewrap + socat come from the apt layer above.
+# Containers lack privileged namespaces, so the default policy (see
+# srt-settings.json) sets enableWeakerNestedSandbox — weaker than host srt,
+# still a real deny-by-default egress allowlist for untrusted commands.
+RUN npm install -g @anthropic-ai/sandbox-runtime \
+    && srt --version
 
 # Hermes Agent — pre-install via uv into /usr/local/lib/hermes-agent with global CLI wrapper
 RUN uv venv /usr/local/lib/hermes-agent --python python3 \
@@ -98,6 +106,7 @@ RUN mkdir -p \
     && chown -R dev:dev /workspace
 
 # --- Entrypoint + autosave scripts -----------------------------------------
+COPY --chmod=0644 srt-settings.json /usr/local/share/sandbox/srt-settings.json
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/sandbox-entrypoint
 COPY --chmod=0755 container-autosave.sh /usr/local/bin/container-autosave
 
