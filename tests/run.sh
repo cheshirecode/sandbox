@@ -460,6 +460,26 @@ test_functional() {
   else
     fail "srt missing from image"
   fi
+  # srt default-policy upgrade: an UNEDITED stale default in the home volume
+  # must be replaced by the current baked default (with a .bak), not kept
+  # forever. Pre-seed a stale file, run the entrypoint, assert upgrade.
+  mkdir -p "$SANDBOX_HOME_DIR"
+  printf '{"stale": true}\n' > "$SANDBOX_HOME_DIR/.srt-settings.json"
+  rm -f "$SANDBOX_HOME_DIR/.sandbox/srt-settings.default.sha256"
+  out=$(mktemp); err=$(mktemp)
+  run_entry "$out" "$err" -v "$SANDBOX_HOME_DIR:/workspace/home" || true
+  if grep -q '"stale"' "$SANDBOX_HOME_DIR/.srt-settings.json" 2>/dev/null; then
+    fail "stale srt default policy was not upgraded"
+  elif [ -f "$SANDBOX_HOME_DIR/.srt-settings.json.bak" ] \
+      && grep -q 'enableWeakerNestedSandbox' "$SANDBOX_HOME_DIR/.srt-settings.json"; then
+    ok "stale srt default policy upgraded with backup"
+  else
+    fail "srt policy upgrade left an unexpected state"
+  fi
+  rm -f "$out" "$err" "$SANDBOX_HOME_DIR/.srt-settings.json" \
+    "$SANDBOX_HOME_DIR/.srt-settings.json.bak" \
+    "$SANDBOX_HOME_DIR/.sandbox/srt-settings.default.sha256"
+
   # Positive control FIRST: an allowed action must SUCCEED under srt with
   # the baked policy. Without this, a policy file srt cannot even read makes
   # every "blocked" check below pass for the wrong reason (observed: COPY
