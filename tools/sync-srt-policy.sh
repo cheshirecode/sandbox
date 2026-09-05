@@ -56,7 +56,13 @@ PACKS_DIR="$(find_packs_dir)" || {
 }
 
 PACK="$PACKS_DIR/packs/$PACK_NAME.json"
-pack_sha="$(shasum -a 256 "$PACK" | awk '{print $1}')"
+# Portable digest: stock ubuntu lacks shasum (perl), stock macOS lacks
+# sha256sum (coreutils) — this tool runs on both (dev host + linux CI).
+if command -v sha256sum >/dev/null 2>&1; then
+  pack_sha="$(sha256sum "$PACK" | awk '{print $1}')"
+else
+  pack_sha="$(shasum -a 256 "$PACK" | awk '{print $1}')"
+fi
 
 render() {
   jq -n \
