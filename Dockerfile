@@ -106,7 +106,11 @@ RUN mkdir -p \
     && chown -R dev:dev /workspace
 
 # --- Entrypoint + autosave scripts -----------------------------------------
+# BuildKit applies --chmod to created parent dirs too, so a 0644 COPY here
+# left /usr/local/share/sandbox non-traversable (dev could not read the
+# policy and srt refused to run). Fix the directory mode explicitly.
 COPY --chmod=0644 srt-settings.json /usr/local/share/sandbox/srt-settings.json
+RUN chmod 0755 /usr/local/share/sandbox
 COPY --chmod=0755 entrypoint.sh /usr/local/bin/sandbox-entrypoint
 COPY --chmod=0755 container-autosave.sh /usr/local/bin/container-autosave
 

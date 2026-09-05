@@ -12,7 +12,8 @@
       "files.pythonhosted.org",
       "api.anthropic.com",
       "statsig.anthropic.com"
-    ]
+    ],
+    "deniedDomains": []
   },
   "filesystem": {
     "denyRead": [
@@ -27,6 +28,7 @@
       ".",
       "/tmp",
       "/workspace/oss"
-    ]
+    ],
+    "denyWrite": []
   }
 }
