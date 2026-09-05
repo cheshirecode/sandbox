@@ -451,6 +451,37 @@ test_functional() {
     fail "GIT_AUTHOR_NAME override ignored (got '$name')"
   fi
   cleanup_test_container
+
+  # srt policy layer. Each inner script exits 93 when srt itself is missing,
+  # so a missing binary fails the test instead of false-greening through the
+  # "blocked" branch (the adjacent-pattern trap).
+  if docker run --rm --entrypoint bash "$TEST_IMAGE" -lc 'srt --version' >/dev/null 2>&1; then
+    ok "srt installed in image"
+  else
+    fail "srt missing from image"
+  fi
+  if docker run --rm --entrypoint bash "$TEST_IMAGE" -lc '
+        command -v srt >/dev/null || exit 93
+        cd /tmp
+        touch "$HOME/ctl-probe" || exit 90
+        if srt --settings /usr/local/share/sandbox/srt-settings.json bash -c "touch \"$HOME/srt-probe\"" 2>/dev/null; then
+          exit 91
+        fi
+        [ ! -f "$HOME/srt-probe" ]'; then
+    ok "srt blocks writes outside allowWrite"
+  else
+    fail "srt write fence did not hold"
+  fi
+  if docker run --rm --entrypoint bash "$TEST_IMAGE" -lc '
+        command -v srt >/dev/null || exit 93
+        if srt --settings /usr/local/share/sandbox/srt-settings.json curl -sS --max-time 10 https://example.com >/dev/null 2>&1; then
+          exit 91
+        fi
+        exit 0'; then
+    ok "srt blocks non-allowlisted egress"
+  else
+    fail "srt egress allowlist did not block example.com"
+  fi
 }
 
 # --- Dispatch --------------------------------------------------------------
