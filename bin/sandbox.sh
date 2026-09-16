@@ -48,7 +48,9 @@ source "$REPO_ROOT/mounts.env"
 
 # --- Host preflight --------------------------------------------------------
 ensure_runtime_dirs() {
-  mkdir -p "$SANDBOX_HOME_DIR" "$SANDBOX_INBOX_DIR"
+  # PROJECTS_DIR is bind-mounted, and docker fails the run rather than creating
+  # a missing bind source, so it belongs here with the other runtime dirs.
+  mkdir -p "$SANDBOX_HOME_DIR" "$SANDBOX_INBOX_DIR" "$SANDBOX_PROJECTS_DIR"
 }
 
 wait_for_entrypoint_ready() {
