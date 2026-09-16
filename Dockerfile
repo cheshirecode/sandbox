@@ -84,7 +84,8 @@ RUN uv venv /usr/local/lib/hermes-agent --python python3 \
 ARG HOST_UID=1000
 ARG HOST_GID=1000
 RUN groupadd -g "$HOST_GID" dev 2>/dev/null || groupmod -n dev "$(getent group $HOST_GID | cut -d: -f1)" \
-    && useradd -m -u "$HOST_UID" -g dev -s /bin/bash -d /home/dev dev \
+    && { useradd -m -u "$HOST_UID" -g dev -s /bin/bash -d /home/dev dev 2>/dev/null \
+         || usermod -l dev -g dev -d /home/dev -m -s /bin/bash "$(getent passwd $HOST_UID | cut -d: -f1)"; } \
     && echo "dev ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/dev \
     && chmod 0440 /etc/sudoers.d/dev
 
