@@ -64,7 +64,7 @@ bin/sandbox.sh up --no-attach
 # 3. OSS workspace repos (bind-mounted at /workspace/oss/<name>)
 #    Edit on host; test inside container without cloning.
 
-# 3b. the work org-internal repos under ~/Documents/projects → /workspace/projects
+# 3b. Work-internal repos under ~/Documents/projects → /workspace/projects
 #     Edit + commit on host (projects/.envrc); sandbox is verify-only:
 docker exec cheshirecode-sandbox bash -lc '
   cd /workspace/projects/factory-brief
@@ -206,7 +206,7 @@ that shipped despite ~18 structural tests passing.
     identity from that token via `gh api user`, baking the wrong identity
     into the running container — re-creating hazard #12 (work-identity
     leak) from a different vector. Observed: 4+ hours running as
-    `<work-user>` instead of `cheshirecode` after a token rotation,
+    the work account instead of `cheshirecode` after a token rotation,
     until a `docker exec ... git config user.email` surfaced it.
     **Fix in place** (`bin/sandbox.sh` cmd_up, post-`require_token`):
     when `$WORKLOG_LDAP`, `$SANDBOX_LOGIN_EXPECTED`, OR a profile is
@@ -227,7 +227,7 @@ that shipped despite ~18 structural tests passing.
     The sandbox's identity isolation only applies INSIDE the container;
     it cannot constrain what sub-agents do on the host. Real leak observed
     this session: a sub-agent committed to a `cheshirecode/*` repo with
-    a `@<work-domain>` work email. **Resolution:** the affected repo was
+    a work-domain email. **Resolution:** the affected repo was
     nuked from GitHub by the maintainer — the leaked commit no longer
     exists. **Forward mitigation:** every commit-mutating sub-agent
     prompt must explicitly say `docker exec cheshirecode-sandbox bash -c
@@ -293,7 +293,7 @@ Use the sandbox for:
 - Exercising dependency installs that would pollute the host
 
 **Do NOT use the sandbox for:**
-- Anything requiring the user's work identity (work-org/*, work repos)
+- Anything requiring the user's work identity (work org repos)
 - Long-running services (containers are designed ephemeral)
 - Cursor IDE-driven work — Cursor's auth is keychain-only and currently
   bound to the user's work account; documented out of scope

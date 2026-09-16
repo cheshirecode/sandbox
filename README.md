@@ -99,9 +99,11 @@ Everything else is on host bind mounts and inspectable from your editor.
   would tunnel your work SSH key into the sandbox.
 - `GH_TOKEN` piped via tmpfs `/run/secrets/`, never `-e`, never build args.
   Re-injected on every `sandbox.sh up`; shredded after the entrypoint reads it.
-- Entrypoint REFUSES to start if `GITHUB_TOKEN` (work-identity-shaped) or
-  any `*WORK_ORG*` / `*ANTHROPIC_INTERNAL*` env var is present. Override
-  via `SANDBOX_REFUSE_PATTERNS=""` (don't).
+- Entrypoint REFUSES to start if `GITHUB_TOKEN` (work-identity-shaped) is
+  present, or if any env var name matches `SANDBOX_REFUSE_PATTERNS`. That
+  pattern is yours to set in your personal `.envrc` (e.g.
+  `MYCORP|VENDOR_INTERNAL`); it defaults to empty, so set it or nothing extra
+  is refused.
 - Git identity AUTO-DERIVED from `gh api user` against the piped token —
   whoever owns the token gets credited; no hardcoded names.
 - gpg signing disabled inside the sandbox.
@@ -155,7 +157,7 @@ Two bind mounts (see `mounts.env`):
 | Host | Container | Use |
 |------|-----------|-----|
 | `$SANDBOX_WORKSPACE` (default: parent of this repo, e.g. `~/Documents/oss`) | `/workspace/oss` | Personal-OSS repos (`_worklog`, `dotfiles`, …) |
-| `$SANDBOX_PROJECTS_DIR` (default: sibling `~/Documents/projects`) | `/workspace/projects` | the work org-internal repos (`factory-brief`, `ui`, …) |
+| `$SANDBOX_PROJECTS_DIR` (default: sibling `~/Documents/projects`) | `/workspace/projects` | Work-internal repos (`factory-brief`, `ui`, …) |
 
 Edit and commit on the host with the matching tree identity (`oss/.envrc` vs
 `projects/.envrc`). Use the sandbox only to verify (e.g. `npm test`):
