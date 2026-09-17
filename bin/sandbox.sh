@@ -83,14 +83,49 @@ detect_docker_host() {
   fi
 }
 
+# Read ONE named key from the machine-local credential file (~/.env.secrets).
+# Same dotenv shape as ~/.hermes/.env below; cheshirecode/dotfiles install.sh
+# generates it empty at mode 0600 and the operator fills it in per machine.
+# This is the last fallback in every probe, and it is what makes them work on
+# Linux and WSL2, where there is no keychain.
+#
+# One key at a time, never the whole file: a host holds credentials for more
+# than one identity, and the sandbox must not inherit the ones it was not
+# asked for. NEVER echo a value except on stdout to a single caller.
+probe_env_secrets() {
+  local file="${ENV_SECRETS_FILE:-$HOME/.env.secrets}" key value
+  [[ -r "$file" ]] || return 1
+  for key in "$@"; do
+    # Anchored at the line start, first match only: an unanchored pattern
+    # also matches a key name written inside another value, and a greedy one
+    # takes the last assignment rather than the first.
+    value=$(sed -n "s/^[[:space:]]*${key}=//p" "$file" | head -1 | tr -d '\r\n')
+    value="${value%\"}"; value="${value#\"}"
+    value="${value%\'}"; value="${value#\'}"
+    if [[ -n "$value" ]]; then
+      printf '%s' "$value"
+      return 0
+    fi
+  done
+  return 1
+}
+
 require_token() {
   if ! command -v gh >/dev/null; then
     echo "sandbox: gh CLI not installed on host. brew install gh" >&2
     exit 1
   fi
   if ! token=$(gh auth token 2>/dev/null) || [[ -z "$token" ]]; then
-    echo "sandbox: no host gh token. Run \`gh auth login\` first." >&2
-    exit 1
+    # Fall back to the credential file. A Linux or WSL2 host has no keychain
+    # for `gh auth login` to store into, so without this the sandbox cannot
+    # start there at all. Owner-scoped key first, since a host may hold
+    # tokens for several accounts and only this one may reach the container.
+    local owner
+    owner=$(printf '%s' "${SANDBOX_LOGIN:-cheshirecode}" | tr '[:lower:]' '[:upper:]')
+    if ! token=$(probe_env_secrets "GH_TOKEN_${owner}" GH_TOKEN) || [[ -z "$token" ]]; then
+      echo "sandbox: no host gh token. Run \`gh auth login\`, or set GH_TOKEN_${owner} in ~/.env.secrets." >&2
+      exit 1
+    fi
   fi
   # NEVER echo the token. Caller consumes via $token in the same shell.
   printf '%s' "$token"
@@ -142,6 +177,7 @@ probe_openai_credentials() {
 # Probes host environment OPEN_ROUTER_API_KEY_HERMES / OPENROUTER_API_KEY first,
 # then ~/.hermes/.env, then ~/.local/share/opencode/auth.json, then ~/.hermes/config.json.
 probe_openrouter_credentials() {
+  local secret_key
   if [[ -n "${OPEN_ROUTER_API_KEY_HERMES:-}" ]]; then
     printf '%s' "$OPEN_ROUTER_API_KEY_HERMES"
     return 0
@@ -178,6 +214,10 @@ except Exception:
       return 0
     fi
   fi
+  if secret_key=$(probe_env_secrets OPENROUTER_API_KEY); then
+    printf '%s' "$secret_key"
+    return 0
+  fi
   return 1
 }
 
@@ -193,6 +233,7 @@ probe_hermes_credentials() {
 
 # Probe host for Nous Portal credentials.
 probe_nous_credentials() {
+  local secret_key
   if [[ -n "${HERMES_API_KEY_FREE:-}" ]]; then
     printf '%s' "$HERMES_API_KEY_FREE"
     return 0
@@ -213,6 +254,10 @@ probe_nous_credentials() {
       printf '%s' "$key"
       return 0
     fi
+  fi
+  if secret_key=$(probe_env_secrets NOUS_API_KEY HERMES_API_KEY); then
+    printf '%s' "$secret_key"
+    return 0
   fi
   return 1
 }

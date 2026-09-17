@@ -55,6 +55,93 @@ test_static() {
     say SKIP "shellcheck not installed"
   fi
 
+  # probe_env_secrets contract. The credential file is the only credential
+  # path a Linux or WSL2 host has -- no keychain exists there -- so a
+  # near-miss reader hands the container a confident wrong value instead of
+  # failing. Each case below was proven red against a deliberate mutation.
+  if command -v bash >/dev/null; then
+    local es_tmp es_out es_fails=0 es_checks=0
+    es_tmp="$(mktemp -d)"
+    cat > "$es_tmp/.env.secrets" <<'ESEOF'
+GH_TOKEN_CHESHIRECODE=owner-token
+NOTE=mentions OPENROUTER_API_KEY=not-an-assignment
+OPENROUTER_API_KEY=router-key
+DUPLICATE=first-assignment
+DUPLICATE=second-assignment
+QUOTED="quoted-key"
+EMPTY=
+ESEOF
+    printf 'CRLF_KEY=crlf-key\r\n' >> "$es_tmp/.env.secrets"
+    chmod 600 "$es_tmp/.env.secrets"
+
+    # Extract JUST the function. Sourcing bin/sandbox.sh would run its
+    # dispatcher, and a truncated copy of the top of the file runs the arg
+    # parsing instead of defining anything -- measured: probe_env_secrets was
+    # then undefined and every case returned empty, which reads like a real
+    # red rather than a broken fixture.
+    sed -n '/^probe_env_secrets() {/,/^}/p' bin/sandbox.sh > "$es_tmp/lib.sh"
+    if ! grep -q '^probe_env_secrets() {' "$es_tmp/lib.sh"; then
+      fail "could not extract probe_env_secrets from bin/sandbox.sh"
+      rm -rf "$es_tmp"
+      return 1
+    fi
+    es_call() {
+      ENV_SECRETS_FILE="$es_tmp/.env.secrets" \
+        bash -c '. "$1"; shift; probe_env_secrets "$@"' _ "$es_tmp/lib.sh" "$@" 2>/dev/null
+    }
+
+    es_expect() { # es_expect <want> <label> <key>...
+      local want="$1" label="$2"; shift 2
+      es_checks=$((es_checks + 1))
+      es_out="$(es_call "$@")"
+      if [ "$es_out" != "$want" ]; then
+        echo "    probe_env_secrets: $label -- got '$es_out', want '$want'" >&2
+        # A stray CR or trailing space otherwise prints a mismatch whose two
+        # sides look identical, which reads like a passing test.
+        echo "      bytes got:  $(printf '%s' "$es_out" | od -c | sed -n 1p | cut -c9-)" >&2
+        echo "      bytes want: $(printf '%s' "$want"   | od -c | sed -n 1p | cut -c9-)" >&2
+        es_fails=$((es_fails + 1))
+      fi
+    }
+
+    es_expect owner-token "owner-scoped key resolves"      GH_TOKEN_CHESHIRECODE
+    es_expect router-key  "ignores a key named mid-line"   OPENROUTER_API_KEY
+    es_expect quoted-key  "strips quotes"                  QUOTED
+    es_expect crlf-key    "strips the CR of a CRLF file"   CRLF_KEY
+    es_expect first-assignment "takes the first assignment, not the last" DUPLICATE
+    es_expect owner-token "first key wins over later ones" GH_TOKEN_CHESHIRECODE GH_TOKEN
+
+    # An empty value and an absent key are both rc 1, never rc 0 with an
+    # empty string -- the caller reads rc 0 as "credential found".
+    for es_key in EMPTY ABSENT; do
+      es_checks=$((es_checks + 1))
+      if es_call "$es_key" >/dev/null 2>&1; then
+        echo "    probe_env_secrets: $es_key returned rc 0, want rc 1" >&2
+        es_fails=$((es_fails + 1))
+      fi
+    done
+
+    # An unreadable file must fail, not crash the caller.
+    es_checks=$((es_checks + 1))
+    if ENV_SECRETS_FILE="$es_tmp/nope" \
+       bash -c '. "$1"; probe_env_secrets GH_TOKEN' _ "$es_tmp/lib.sh" >/dev/null 2>&1; then
+      echo "    probe_env_secrets: absent file returned rc 0" >&2
+      es_fails=$((es_fails + 1))
+    fi
+
+    rm -rf "$es_tmp"
+    if [ "$es_checks" -lt 9 ]; then
+      # A computed count, not a literal: a hardcoded number goes stale the
+      # moment a case is added, and a lane that stops running its cases
+      # reports a pass either way.
+      fail "probe_env_secrets ran only $es_checks case(s); the lane is inert"
+    elif [ "$es_fails" -eq 0 ]; then
+      ok "probe_env_secrets reads one key correctly ($es_checks cases)"
+    else
+      fail "probe_env_secrets: $es_fails of $es_checks case(s) wrong"
+    fi
+  fi
+
   if ./tools/check-mounts-sync.sh; then
     ok "mounts.env ↔ devcontainer.json sync"
   else
