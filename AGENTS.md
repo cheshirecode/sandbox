@@ -277,7 +277,7 @@ bin/sandbox.sh run-headless <cmd> [args...]
                                  under learnings-inbox/headless-runs/
 bin/sandbox.sh down              stop container; volumes preserved
 bin/sandbox.sh status            alias for list
-bin/sandbox.sh status --json     active profile state; Docker errors exit 2
+bin/sandbox.sh status --json     active profile state; runtime errors exit 2
 bin/sandbox.sh run-result <id>   bounded JSON receipt; incomplete != running
 bin/sandbox.sh rebuild           force rebuild image
 bin/sandbox.sh doctor            host preflight + show detected layout

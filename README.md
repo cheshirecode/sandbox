@@ -214,8 +214,9 @@ bin/sandbox.sh run-result 20260918T120000Z-123
 ```
 
 Both commands emit JSON with `schema_version: 1` and `profile` (`null` for the
-implicit default). Status returns `container` and Docker `state`, including
-`absent`; a Docker failure returns `error: "docker_unavailable"` and exits 2.
+implicit default). Status uses the selected Docker/Podman runtime and returns `container` and
+`state`, including `absent`; a runtime failure returns
+`error: "runtime_unavailable"` and exits 2.
 Plain `status` retains the all-profile human table. Run results return `run_id`,
 `state`, `exit_code`, `started_at`, and `ended_at`. States are `succeeded`,
 `failed`, or `incomplete`. Incomplete means completion is unproven, including

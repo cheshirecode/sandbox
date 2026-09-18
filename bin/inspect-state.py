@@ -72,27 +72,27 @@ def run_result(inbox, run_id, profile, login, container, workspace):
         return result
 
 
-def container_status(container):
+def container_status(container, runtime):
     try:
         probe = subprocess.run(
-            ["docker", "container", "ls", "--all", "--filter",
+            [runtime, "container", "ls", "--all", "--filter",
              "name=^/" + re.escape(container) + "$", "--format", "{{.State}}"],
             capture_output=True, text=True, timeout=10, check=True)
     except (OSError, subprocess.SubprocessError):
-        raise InspectionError("docker_unavailable") from None
+        raise InspectionError("runtime_unavailable") from None
     state = probe.stdout.strip() or "absent"
     if state not in {"absent", "created", "running", "paused", "restarting",
                      "removing", "exited", "dead"}:
-        raise InspectionError("invalid_docker_response")
+        raise InspectionError("invalid_runtime_response")
     return dict(container=container, state=state)
 
 
 def main():
-    operation, profile, login, container, workspace, inbox, *args = sys.argv[1:]
+    operation, profile, login, container, workspace, inbox, runtime, *args = sys.argv[1:]
     response = dict(schema_version=1, profile=profile or None)
     try:
         if operation == "status" and not args:
-            response.update(container_status(container))
+            response.update(container_status(container, runtime))
         elif operation == "run-result" and len(args) == 1:
             response.update(run_result(inbox, args[0], profile, login, container, workspace))
         else:

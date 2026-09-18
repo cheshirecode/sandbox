@@ -23,6 +23,7 @@ class InspectionTests(unittest.TestCase):
         self.run.mkdir(parents=True)
         self.env = {**os.environ, "SANDBOX_LOGIN": "fixture",
                     "SANDBOX_WORKSPACE": str(self.workspace), "SANDBOX_PROFILE": "",
+                    "SANDBOX_RUNTIME": "docker",
                     "SANDBOX_PROFILE_DIR": str(self.profiles),
                     "PATH": str(self.workspace) + os.pathsep + os.environ["PATH"]}
         self.docker = self.workspace / "docker"
@@ -143,10 +144,18 @@ class InspectionTests(unittest.TestCase):
         self.assertEqual((self.workspace / "docker-args").read_text().splitlines(),
                          ["container", "ls", "--all", "--filter", "name=^/fixture\\-sandbox$", "--format", "{{.State}}"])
 
+    def test_status_honors_selected_runtime(self):
+        podman = self.workspace / "podman"
+        podman.write_text('#!/bin/sh\nprintf "paused\\n"\n')
+        podman.chmod(0o755)
+        self.env["SANDBOX_RUNTIME"] = "podman"
+        self.assertEqual(self.call("status", "--json")["state"], "paused")
+        self.assertFalse((self.workspace / "docker-args").exists())
+
     def test_status_absent_stopped_and_error_are_distinct(self):
         for output, code, expected in [("", 0, "absent"), ("exited", 0, "exited"),
-                                      ("DO_NOT_EXPOSE", 1, "docker_unavailable"),
-                                      ("running\\nexited", 0, "invalid_docker_response")]:
+                                      ("DO_NOT_EXPOSE", 1, "runtime_unavailable"),
+                                      ("running\\nexited", 0, "invalid_runtime_response")]:
             self.docker.write_text(f'#!/bin/sh\nprintf "{output}\\n"\nexit {code}\n')
             result = self.call("status", "--json", code=0 if expected in {"absent", "exited"} else 2)
             self.assertEqual(result.get("state", result.get("error")), expected)

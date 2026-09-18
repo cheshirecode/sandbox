@@ -489,7 +489,7 @@ cmd_run_headless() {
 # Typed inspection deliberately excludes raw logs, commands, paths and env.
 cmd_inspect_json() {
   python3 "$REPO_ROOT/bin/inspect-state.py" "$1" "${SANDBOX_PROFILE_NAME:-}" \
-    "$SANDBOX_LOGIN" "$CONTAINER_NAME" "$SANDBOX_WORKSPACE" "$SANDBOX_INBOX_DIR" "${@:2}"
+    "$SANDBOX_LOGIN" "$CONTAINER_NAME" "$SANDBOX_WORKSPACE" "$SANDBOX_INBOX_DIR" "$SANDBOX_RT" "${@:2}"
 }
 
 cmd_status() {
