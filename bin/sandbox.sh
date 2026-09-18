@@ -32,6 +32,10 @@ set -- ${_REMAINING_ARGS[@]+"${_REMAINING_ARGS[@]}"}
 unset _REMAINING_ARGS _arg
 
 if [[ -n "$SANDBOX_PROFILE_NAME" ]]; then
+  if [[ ! "$SANDBOX_PROFILE_NAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
+    echo "sandbox: invalid profile name" >&2
+    exit 78
+  fi
   PROFILE_FILE="$PROFILE_DIR/${SANDBOX_PROFILE_NAME}.env"
   if [[ ! -f "$PROFILE_FILE" ]]; then
     echo "sandbox: profile '$SANDBOX_PROFILE_NAME' not found at $PROFILE_FILE" >&2
@@ -482,6 +486,23 @@ cmd_run_headless() {
   return "$rc"
 }
 
+# Typed inspection deliberately excludes raw logs, commands, paths and env.
+cmd_inspect_json() {
+  python3 "$REPO_ROOT/bin/inspect-state.py" "$1" "${SANDBOX_PROFILE_NAME:-}" \
+    "$SANDBOX_LOGIN" "$CONTAINER_NAME" "$SANDBOX_WORKSPACE" "$SANDBOX_INBOX_DIR" "${@:2}"
+}
+
+cmd_status() {
+  if [[ $# -eq 0 ]]; then
+    cmd_list
+  elif [[ $# -eq 1 && "$1" == "--json" ]]; then
+    cmd_inspect_json status
+  else
+    echo "usage: bin/sandbox.sh status [--json]" >&2
+    return 2
+  fi
+}
+
 # --- Subcommand: down ------------------------------------------------------
 cmd_down() {
   if docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"; then
@@ -812,6 +833,10 @@ cmd_inspect() {
 cmd_profile_new() {
   local name="${1:-}"
   [[ -z "$name" ]] && { echo "usage: profile-new <name> [--login=<gh-login>] [--workspace=<path>]" >&2; return 2; }
+  if [[ ! "$name" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
+    echo "sandbox: invalid profile name" >&2
+    return 2
+  fi
   shift || true
 
   local login="" workspace="" refuse_patterns=""
@@ -932,6 +957,8 @@ Profile CRUD (config files at \$HOME/.config/sandbox/profiles/<name>.env):
 Inspection / management (any profile on this host):
   bin/sandbox.sh list             list all sandbox profiles on host
   bin/sandbox.sh status           alias for list
+  bin/sandbox.sh status --json    active profile container state (requires python3)
+  bin/sandbox.sh run-result <id>  bounded JSON receipt summary (requires python3)
   bin/sandbox.sh inspect [<login>] detail one profile (default: active)
   bin/sandbox.sh doctor           host preconditions + active profile layout
 
@@ -955,7 +982,9 @@ case "$cmd" in
   exec)            cmd_exec "$@" ;;
   run-headless)    cmd_run_headless "$@" ;;
   down)            cmd_down ;;
-  list|status)     cmd_list ;;
+  list)            cmd_list ;;
+  status)          cmd_status "$@" ;;
+  run-result)      cmd_inspect_json run-result "$@" ;;
   inspect)         cmd_inspect "$@" ;;
   prune)           cmd_prune "$@" ;;
   profile-new)     cmd_profile_new "$@" ;;

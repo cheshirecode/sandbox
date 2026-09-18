@@ -24,7 +24,7 @@ cd "$REPO_ROOT"
 # shellcheck source=../mounts.env
 source mounts.env
 TEST_IMAGE="$IMAGE_NAME:test"
-TEST_CONTAINER="${SANDBOX_LOGIN}-sandbox-test"
+TEST_CONTAINER="${SANDBOX_LOGIN}-sandbox-test-$$"
 
 # srt (bwrap) needs mount propagation inside the test containers. On hosts
 # whose docker daemon enforces apparmor (GitHub ubuntu runners; most Linux),
@@ -44,6 +44,12 @@ fail() { say FAIL "$1"; FAIL=$((FAIL+1)); }
 # --- Static checks ---------------------------------------------------------
 test_static() {
   echo "=== static ==="
+
+  if python3 tests/test_inspection.py; then
+    ok "typed read-only inspection"
+  else
+    fail "typed read-only inspection"
+  fi
 
   if command -v shellcheck >/dev/null; then
     if shellcheck --severity=warning bin/*.sh tools/*.sh tests/*.sh entrypoint.sh container-autosave.sh; then
@@ -243,6 +249,14 @@ start_test_container() {
 
 test_functional() {
   echo "=== functional ==="
+
+  # These tests clear the inbox and rewrite Git/SRT configuration. Never use
+  # mounts.env's live workspace paths, even when a real sandbox is running.
+  TEST_RUNTIME_DIR="$(mktemp -d "${TMPDIR:-/tmp}/sandbox-tests.XXXXXX")"
+  SANDBOX_HOME_DIR="$TEST_RUNTIME_DIR/home"
+  SANDBOX_INBOX_DIR="$TEST_RUNTIME_DIR/inbox"
+  mkdir -p "$SANDBOX_HOME_DIR" "$SANDBOX_INBOX_DIR"
+  trap 'cleanup_test_container; rm -rf "$TEST_RUNTIME_DIR"' EXIT
 
   # 1. Refuses GITHUB_TOKEN env (work-identity-shaped).
   local out err
