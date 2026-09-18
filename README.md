@@ -204,7 +204,44 @@ Each invocation writes a host-inspectable artifact directory under
 intended wrapper for worklog-manager dry-runs: inspect full artifacts locally,
 then post only redacted summaries back to GitHub Issues.
 
+Agents can inspect the active profile without parsing the human table or raw logs
+(host Python 3 required):
+
+```bash
+bin/sandbox.sh status --json
+bin/sandbox.sh run-result 20260918T120000Z-123
+# Both accept the existing --profile=<name> selector.
+```
+
+Both commands emit JSON with `schema_version: 1` and `profile` (`null` for the
+implicit default). Status uses the selected Docker/Podman runtime and returns `container` and
+`state`, including `absent`; a runtime failure returns
+`error: "runtime_unavailable"` and exits 2.
+Plain `status` retains the all-profile human table. Run results return `run_id`,
+`state`, `exit_code`, `started_at`, and `ended_at`. States are `succeeded`,
+`failed`, or `incomplete`. Incomplete means completion is unproven, including
+an active or interrupted run; it does not claim the command is still running.
+Completion requires matching exit codes and end metadata. A failed command is
+still a successfully retrieved result (CLI exit 0); inspection errors exit 2.
+
+Receipt reads are size-limited, refuse symlinks and non-regular files, and check
+the recorded profile, login, container, and workspace. Commands, logs, environment,
+and filesystem paths are excluded from JSON. Existing receipts remain readable;
+missing, malformed, or mismatched evidence never becomes a successful run.
+Profile selectors must start with a letter or digit and contain only letters,
+digits, dots, underscores, and hyphens. Profile files remain trusted local shell
+configuration, not a boundary for untrusted callers.
+
+This adapts [Impresspress](https://github.com/impresspress/impresspress)'s typed
+operations and explicit result states to the
+existing CLI. It does not expose Docker or arbitrary shell execution through
+WebMCP. A future browser integration must use its own authenticated operation
+allowlist; this ephemeral sandbox still publishes no browser ports.
+
 Inbox curation: just `ls -lt $SANDBOX_INBOX_DIR/`. Files are files.
+
+Functional tests use a disposable home, inbox, and uniquely named container;
+they do not clear live run receipts or rewrite the active sandbox identity.
 
 ## Node versions and work repos
 

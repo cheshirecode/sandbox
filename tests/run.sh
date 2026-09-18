@@ -24,7 +24,7 @@ cd "$REPO_ROOT"
 # shellcheck source=../mounts.env
 source mounts.env
 TEST_IMAGE="$IMAGE_NAME:test"
-TEST_CONTAINER="${SANDBOX_LOGIN}-sandbox-test"
+TEST_CONTAINER="${SANDBOX_LOGIN}-sandbox-test-$$"
 
 # srt (bwrap) needs mount propagation inside the test containers. On hosts
 # whose docker daemon enforces apparmor (GitHub ubuntu runners; most Linux),
@@ -44,6 +44,12 @@ fail() { say FAIL "$1"; FAIL=$((FAIL+1)); }
 # --- Static checks ---------------------------------------------------------
 test_static() {
   echo "=== static ==="
+
+  if python3 tests/test_inspection.py; then
+    ok "typed read-only inspection"
+  else
+    fail "typed read-only inspection"
+  fi
 
   if command -v shellcheck >/dev/null; then
     if shellcheck --severity=warning bin/*.sh tools/*.sh tests/*.sh entrypoint.sh container-autosave.sh; then
@@ -330,6 +336,14 @@ start_test_container() {
 
 test_functional() {
   echo "=== functional ==="
+
+  # These tests clear the inbox and rewrite Git/SRT configuration. Never use
+  # mounts.env's live workspace paths, even when a real sandbox is running.
+  TEST_RUNTIME_DIR="$(mktemp -d "${TMPDIR:-/tmp}/sandbox-tests.XXXXXX")"
+  SANDBOX_HOME_DIR="$TEST_RUNTIME_DIR/home"
+  SANDBOX_INBOX_DIR="$TEST_RUNTIME_DIR/inbox"
+  mkdir -p "$SANDBOX_HOME_DIR" "$SANDBOX_INBOX_DIR"
+  trap 'cleanup_test_container; rm -rf "$TEST_RUNTIME_DIR"' EXIT
 
   # 1. Refuses GITHUB_TOKEN env (work-identity-shaped).
   local out err
@@ -651,8 +665,16 @@ test_functional() {
   # curl flags must ride inside bash -c: bare `srt curl -sS ...` lets
   # commander parse -sS as srt's own -s(ettings) flag with value "S", and the
   # resulting refusal false-greened this check (observed live).
+  # Both egress checks run with the cwd their write siblings use (/tmp, as
+  # `cd /tmp` there): from the image WORKDIR (/) srt's bwrap template fails
+  # "Can't find source path /home/dev/.bashrc: Permission denied" on some
+  # kernels (measured on Docker Desktop's WSL2 VM, 2026-09-22) while CI's
+  # tolerates it. Without the cd the block check passes vacuously — bwrap
+  # dies before curl runs, the refusal reads as a fence — and the allow
+  # control is what catches it, per its own failure text.
   if docker run --rm "${SRT_SECURITY_OPTS[@]}" --entrypoint bash "$TEST_IMAGE" -lc '
         command -v srt >/dev/null || exit 93
+        cd /tmp
         if srt --settings /usr/local/share/sandbox/srt-settings.json bash -c "curl -sS --max-time 10 https://example.com" >/dev/null 2>&1; then
           exit 91
         fi
@@ -663,6 +685,7 @@ test_functional() {
   fi
   if docker run --rm "${SRT_SECURITY_OPTS[@]}" --entrypoint bash "$TEST_IMAGE" -lc '
         command -v srt >/dev/null || exit 93
+        cd /tmp
         srt --settings /usr/local/share/sandbox/srt-settings.json bash -c "curl -sS --max-time 20 https://api.github.com/zen" >/dev/null'; then
     ok "srt allows allowlisted egress (positive control)"
   else

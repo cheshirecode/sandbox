@@ -48,6 +48,19 @@ From an agent (no TTY), prefer `docker exec` directly to avoid the
 docker exec <login>-sandbox bash -lc '<command>'
 ```
 
+For a saved non-TTY run and a bounded JSON summary (host Python 3 required):
+
+```bash
+bin/sandbox.sh run-headless <command> [args...]
+bin/sandbox.sh run-result <run-id>
+bin/sandbox.sh status --json
+```
+
+Use the run ID printed in the artifact path. `incomplete` means completion is
+unproven, not necessarily still running. Run results omit commands and logs;
+read full artifacts locally only when needed. Inspection errors exit 2; a
+retrieved failed run exits 0 and reports `state: "failed"` with its exit code.
+
 From a human shell, `bin/sandbox.sh exec <cmd>` is fine.
 
 To test a `cheshirecode/*` repo end-to-end (clone + install + `npm test`):
