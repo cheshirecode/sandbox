@@ -578,8 +578,16 @@ test_functional() {
   # curl flags must ride inside bash -c: bare `srt curl -sS ...` lets
   # commander parse -sS as srt's own -s(ettings) flag with value "S", and the
   # resulting refusal false-greened this check (observed live).
+  # Both egress checks run with the cwd their write siblings use (/tmp, as
+  # `cd /tmp` there): from the image WORKDIR (/) srt's bwrap template fails
+  # "Can't find source path /home/dev/.bashrc: Permission denied" on some
+  # kernels (measured on Docker Desktop's WSL2 VM, 2026-09-22) while CI's
+  # tolerates it. Without the cd the block check passes vacuously — bwrap
+  # dies before curl runs, the refusal reads as a fence — and the allow
+  # control is what catches it, per its own failure text.
   if docker run --rm "${SRT_SECURITY_OPTS[@]}" --entrypoint bash "$TEST_IMAGE" -lc '
         command -v srt >/dev/null || exit 93
+        cd /tmp
         if srt --settings /usr/local/share/sandbox/srt-settings.json bash -c "curl -sS --max-time 10 https://example.com" >/dev/null 2>&1; then
           exit 91
         fi
@@ -590,6 +598,7 @@ test_functional() {
   fi
   if docker run --rm "${SRT_SECURITY_OPTS[@]}" --entrypoint bash "$TEST_IMAGE" -lc '
         command -v srt >/dev/null || exit 93
+        cd /tmp
         srt --settings /usr/local/share/sandbox/srt-settings.json bash -c "curl -sS --max-time 20 https://api.github.com/zen" >/dev/null'; then
     ok "srt allows allowlisted egress (positive control)"
   else
