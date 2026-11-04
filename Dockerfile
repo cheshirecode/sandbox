@@ -106,6 +106,22 @@ RUN mkdir -p \
       /workspace/inbox \
     && chown -R dev:dev /workspace
 
+# Public-push guards and dotfiles publication fixtures require the same pinned
+# gitleaks release as dotfiles CI. Keep the archive digest explicit per arch.
+RUN set -eu; \
+    case "$(uname -m)" in \
+      aarch64) arch=arm64; digest=e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080 ;; \
+      x86_64) arch=x64; digest=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb ;; \
+      *) echo "unsupported gitleaks architecture" >&2; exit 1 ;; \
+    esac; \
+    curl -fLsS --retry 2 --retry-all-errors --retry-delay 2 --connect-timeout 15 --max-time 120 \
+      "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_${arch}.tar.gz" \
+      -o /tmp/gitleaks.tar.gz; \
+    printf '%s  /tmp/gitleaks.tar.gz\n' "$digest" | sha256sum --check; \
+    tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks; \
+    rm /tmp/gitleaks.tar.gz; \
+    gitleaks version
+
 # --- Entrypoint + autosave scripts -----------------------------------------
 # BuildKit applies --chmod to created parent dirs too, so a 0644 COPY here
 # left /usr/local/share/sandbox non-traversable (dev could not read the
