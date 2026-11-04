@@ -45,6 +45,12 @@ fail() { say FAIL "$1"; FAIL=$((FAIL+1)); }
 test_static() {
   echo "=== static ==="
 
+  if bash tests/test_worklog.sh; then
+    ok "mounted Worklog MCP dogfood command"
+  else
+    fail "mounted Worklog MCP dogfood command"
+  fi
+
   if python3 tests/test_inspection.py; then
     ok "typed read-only inspection"
   else

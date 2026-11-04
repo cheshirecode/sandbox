@@ -647,6 +647,28 @@ cmd_verify_llm_auth() {
 }
 
 # --- Subcommand: test-repo ------------------------------------------------
+cmd_test_worklog() {
+  [[ $# -eq 0 ]] || { echo "usage: sandbox test-worklog" >&2; return 2; }
+  local running
+  running="$(docker ps --format '{{.Names}}')" || return 2
+  if ! printf '%s\n' "$running" | grep -qxF "$CONTAINER_NAME"; then
+    echo "sandbox test-worklog: run bin/sandbox.sh up --no-attach first." >&2
+    return 2
+  fi
+  # Use the mounted checkout, never test-repo's clone path. The dogfood
+  # command makes temporary vaults and HOME; persistent configs stay intact.
+  ensure_runtime_dirs
+  local run_dir rc
+  run_dir="$(mktemp -d "$SANDBOX_INBOX_DIR/worklog-mcp.XXXXXX")"
+  rc=0
+  docker exec --user dev --workdir /workspace/oss/dotfiles "$CONTAINER_NAME" \
+    bash bin/dogfood-worklog-mcp.sh >"$run_dir/output.log" 2>&1 || rc=$?
+  printf '%s\n' "$rc" > "$run_dir/exit-code"
+  tail -30 "$run_dir/output.log"
+  printf 'sandbox test-worklog: exit=%s; full log: %s/output.log\n' "$rc" "$run_dir"
+  return "$rc"
+}
+
 # Clone a $SANDBOX_LOGIN/* repo + install + run its tests inside the running
 # sandbox. Exit code = exit code of `npm test`. No output parsing — modern
 # runners (vitest/jest/tape/mocha/pytest/cargo test) all exit non-zero on
@@ -990,6 +1012,7 @@ Lifecycle (per-profile; add --profile=<name> to switch):
   bin/sandbox.sh down [--profile=...]        stop container
   bin/sandbox.sh rebuild [--profile=...]     force rebuild
   bin/sandbox.sh test-repo <name>            clone+install+test in container
+  bin/sandbox.sh test-worklog                dogfood mounted dotfiles Worklog MCP as dev
   bin/sandbox.sh verify-llm-auth             in-container LLM auth check
 
 Profile CRUD (config files at \$HOME/.config/sandbox/profiles/<name>.env):
@@ -1039,6 +1062,7 @@ case "$cmd" in
   doctor)          cmd_doctor ;;
   verify-llm-auth) cmd_verify_llm_auth ;;
   test-repo)       cmd_test_repo "$@" ;;
+  test-worklog)    cmd_test_worklog "$@" ;;
   nuke)            cmd_nuke "$@" ;;
   ""|-h|--help|help) usage ;;
   *) echo "sandbox: unknown subcommand '$cmd'" >&2; usage; exit 2 ;;

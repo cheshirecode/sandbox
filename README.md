@@ -183,6 +183,7 @@ bin/sandbox.sh run-headless <cmd> [args...]
 bin/sandbox.sh status           list all sandbox profiles on host
 bin/sandbox.sh list             list all sandbox profiles on host
 bin/sandbox.sh test-repo <name> clone + install + npm test (cheshirecode/*)
+bin/sandbox.sh test-worklog    verify Worklog MCP setup and protocol in mounted dotfiles
 bin/sandbox.sh down             stop the container (autosave fires)
 bin/sandbox.sh rebuild          force rebuild the image
 bin/sandbox.sh doctor           check host preconditions + show layout
@@ -402,3 +403,13 @@ read-and-shred path. No real credentials transit the test boundary.
 ## License
 
 [Unlicense](./LICENSE).
+
+### Worklog MCP setup checks
+
+With the sibling dotfiles checkout mounted and the sandbox running, run
+`bin/sandbox.sh test-worklog`. It uses the current mounted source as `dev`.
+The dotfiles dogfood command creates temporary vaults and client configurations,
+checks first and repeat setup, starts the configured MCP server, and runs its
+protocol tests. It does not replace the checkout or modify real client settings.
+The command returns the test exit code and saves the full output and exit code
+under `learnings-inbox/worklog-mcp.*/`. A failed Docker probe remains a failure.
